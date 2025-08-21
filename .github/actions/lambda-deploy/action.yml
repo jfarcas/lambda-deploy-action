@@ -396,8 +396,11 @@ runs:
                 pip install -r requirements.txt -t "$TEMP_BUILD_DIR/"
               fi
               
-              # Get exclude patterns from config
-              EXCLUDE_PATTERNS=$(yq eval '.build.artifact.exclude_patterns[]? // empty' "$CONFIG_FILE" | tr '\n' ' ')
+              # Get exclude patterns from config (handle empty case properly)
+              EXCLUDE_PATTERNS=""
+              if yq eval '.build.artifact.exclude_patterns' "$CONFIG_FILE" | grep -q "^-"; then
+                EXCLUDE_PATTERNS=$(yq eval '.build.artifact.exclude_patterns[]' "$CONFIG_FILE" 2>/dev/null | tr '\n' ' ' || echo "")
+              fi
               
               # Copy Python files, excluding test files and sensitive files
               find . -name "*.py" -not -path "./tests/*" -not -path "./.git/*" -not -name "*test*.py" -exec cp {} "$TEMP_BUILD_DIR/" \;
