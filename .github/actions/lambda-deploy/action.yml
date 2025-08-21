@@ -389,15 +389,38 @@ runs:
               ;;
             "python")
               # Standard Python Lambda packaging with security considerations
+              TEMP_BUILD_DIR=$(mktemp -d)
+              
+              # Install dependencies if requirements.txt exists
               if [[ -f "requirements.txt" ]]; then
-                pip install -r requirements.txt -t "$BUILD_DIR/"
+                pip install -r requirements.txt -t "$TEMP_BUILD_DIR/"
               fi
+              
+              # Get exclude patterns from config
+              EXCLUDE_PATTERNS=$(yq eval '.build.artifact.exclude_patterns[]? // empty' "$CONFIG_FILE" | tr '\n' ' ')
+              
               # Copy Python files, excluding test files and sensitive files
-              find . -name "*.py" -not -path "./tests/*" -not -path "./.git/*" -not -name "*test*.py" -exec cp {} "$BUILD_DIR/" \;
+              find . -name "*.py" -not -path "./tests/*" -not -path "./.git/*" -not -name "*test*.py" -exec cp {} "$TEMP_BUILD_DIR/" \;
+              
+              # Copy src directory if it exists
               if [[ -d "src" ]]; then
-                cp -r src/* "$BUILD_DIR/" 2>/dev/null || true
+                cp -r src/* "$TEMP_BUILD_DIR/" 2>/dev/null || true
               fi
-              cd "$BUILD_DIR" && zip -r lambda.zip . && cd - >/dev/null
+              
+              # Remove excluded files from build directory
+              if [[ -n "$EXCLUDE_PATTERNS" ]]; then
+                echo "Applying exclude patterns: $EXCLUDE_PATTERNS"
+                cd "$TEMP_BUILD_DIR"
+                for pattern in $EXCLUDE_PATTERNS; do
+                  find . -name "$pattern" -delete 2>/dev/null || true
+                done
+                cd - >/dev/null
+              fi
+              
+              # Create zip with the correct name and location
+              cd "$TEMP_BUILD_DIR" && zip -r "$(basename "$ARTIFACT_PATH")" . && cd - >/dev/null
+              mv "$TEMP_BUILD_DIR/$(basename "$ARTIFACT_PATH")" "$ARTIFACT_PATH"
+              rm -rf "$TEMP_BUILD_DIR"
               ;;
           esac
         fi
@@ -418,6 +441,32 @@ runs:
         
         echo "✅ Lambda package created: $(ls -lh "$ARTIFACT_PATH")"
         echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_ENV
+
+    - name: Validate Security Requirements
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        set -e
+        
+        echo "🔒 Validating security requirements..."
+        
+        # Validate required credentials are present (without exposing values)
+        if [[ "$AWS_AUTH_TYPE" == "oidc" ]]; then
+          if [[ -z "$AWS_ROLE_ARN" ]]; then
+            echo "::error::AWS_ROLE_ARN environment variable is required for OIDC authentication"
+            exit 1
+          fi
+          echo "✅ OIDC credentials validated (AWS_ROLE_ARN present)"
+        elif [[ "$AWS_AUTH_TYPE" == "access_key" ]]; then
+          if [[ -z "$AWS_ACCESS_KEY_ID" ]] || [[ -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo "::error::AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables are required for access key authentication"
+            exit 1
+          fi
+          echo "✅ Access key credentials validated (both keys present)"
+        fi
+        
+        # Ensure we never accidentally log sensitive values
+        set +x  # Disable command echoing for security
 
     - name: Configure AWS Credentials (OIDC)
       if: steps.determine-env.outputs.environment != 'skip' && env.AWS_AUTH_TYPE == 'oidc'
