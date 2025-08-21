@@ -17,6 +17,27 @@ inputs:
     description: 'Force deployment even if version already exists'
     required: false
     default: 'false'
+  aws-access-key-id:
+    description: 'AWS Access Key ID'
+    required: false
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key'
+    required: false
+  aws-role-arn:
+    description: 'AWS Role ARN for OIDC'
+    required: false
+  s3-bucket-name:
+    description: 'S3 bucket name for artifacts'
+    required: false
+  lambda-function-name:
+    description: 'Lambda function name'
+    required: false
+  aws-region:
+    description: 'AWS region'
+    required: false
+  teams-webhook-url:
+    description: 'Teams webhook URL for notifications'
+    required: false
 
 outputs:
   deployed-version:
@@ -29,6 +50,32 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Set Environment Variables from Inputs
+      shell: bash
+      run: |
+        # Set environment variables from inputs, with fallbacks to existing env vars
+        if [[ -n "${{ inputs.aws-access-key-id }}" ]]; then
+          echo "AWS_ACCESS_KEY_ID=${{ inputs.aws-access-key-id }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.aws-secret-access-key }}" ]]; then
+          echo "AWS_SECRET_ACCESS_KEY=${{ inputs.aws-secret-access-key }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.aws-role-arn }}" ]]; then
+          echo "AWS_ROLE_ARN=${{ inputs.aws-role-arn }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.s3-bucket-name }}" ]]; then
+          echo "S3_BUCKET_NAME=${{ inputs.s3-bucket-name }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.lambda-function-name }}" ]]; then
+          echo "LAMBDA_FUNCTION_NAME=${{ inputs.lambda-function-name }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.aws-region }}" ]]; then
+          echo "AWS_REGION=${{ inputs.aws-region }}" >> $GITHUB_ENV
+        fi
+        if [[ -n "${{ inputs.teams-webhook-url }}" ]]; then
+          echo "TEAMS_WEBHOOK_URL=${{ inputs.teams-webhook-url }}" >> $GITHUB_ENV
+        fi
+
     - name: Install yq for YAML parsing
       shell: bash
       run: |
@@ -459,12 +506,27 @@ runs:
         echo "AWS_AUTH_TYPE=$AUTH_TYPE" >> $GITHUB_ENV
         echo "🔐 AWS Authentication Type: $AUTH_TYPE"
         
-        # Also set AWS region from config if not already set
+        # Set AWS region - prioritize environment variable over config
         if [[ -z "$AWS_REGION" ]]; then
           CONFIG_REGION=$(yq eval ".environments.$ENV.aws.region // \"eu-west-1\"" "$CONFIG_FILE")
           echo "AWS_REGION=$CONFIG_REGION" >> $GITHUB_ENV
-          echo "🌍 AWS Region: $CONFIG_REGION"
+          echo "🌍 AWS Region (from config): $CONFIG_REGION"
+        else
+          echo "🌍 AWS Region (from environment): $AWS_REGION"
         fi
+
+    - name: Debug Environment Variables
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        echo "🔍 Debugging environment variables..."
+        echo "S3_BUCKET_NAME: ${S3_BUCKET_NAME:-'NOT SET'}"
+        echo "LAMBDA_FUNCTION_NAME: ${LAMBDA_FUNCTION_NAME:-'NOT SET'}"
+        echo "AWS_REGION: ${AWS_REGION:-'NOT SET'}"
+        echo "AWS_AUTH_TYPE: ${AWS_AUTH_TYPE:-'NOT SET'}"
+        echo "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:+SET}"  # Only show if set, don't expose value
+        echo "AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:+SET}"  # Only show if set, don't expose value
+        echo "AWS_ROLE_ARN: ${AWS_ROLE_ARN:+SET}"  # Only show if set, don't expose value
 
     - name: Validate Security Requirements
       if: steps.determine-env.outputs.environment != 'skip'
