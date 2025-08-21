@@ -1,0 +1,61 @@
+# .github/workflows/lambda-deploy.yml
+# Workflow simplificado para repositorios Lambda usando el action genérico
+
+name: Lambda Deploy
+
+on:
+  # Despliegue automático en push a ramas específicas
+  push:
+    branches: 
+      - main
+      - 'feature/MMDSQ**'
+  
+  # Despliegue manual para pre/prod
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - pre
+          - prod
+        default: 'pre'
+      version:
+        description: 'Version to deploy (optional - uses package.json if empty)'
+        required: false
+        type: string
+      force-deploy:
+        description: 'Force deployment even if version exists'
+        required: false
+        type: boolean
+        default: false
+
+# Permisos necesarios para OIDC
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Lambda Function
+    uses: YourOrg/devops-actions/.github/workflows/lambda-deploy-reusable.yml@lambda-deploy/v1.0.0
+    with:
+      # Configuration file (should be in repository root)
+      config-file: "lambda-deploy-config.yml"
+      
+      # Environment: 'auto' auto-detects based on branch
+      # For push: uses 'auto', for workflow_dispatch: uses input
+      environment: ${{ github.event.inputs.environment || 'auto' }}
+      
+      # Version: uses input if provided, otherwise uses package.json
+      version: ${{ github.event.inputs.version }}
+      
+      # Force deployment
+      force-deploy: ${{ github.event.inputs.force-deploy || false }}
+      
+      # Action reference - update this to point to your organization's action
+      action-ref: "YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0"
+    
+    # Inherit all repository secrets
+    secrets: inherit

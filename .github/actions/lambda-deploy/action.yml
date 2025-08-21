@@ -1,0 +1,736 @@
+name: 'Generic Lambda Deploy'
+description: 'Reusable action to deploy Lambda functions with flexible configuration'
+
+inputs:
+  config-file:
+    description: 'Path to the lambda deploy configuration file'
+    required: false
+    default: 'lambda-deploy-config.yml'
+  environment:
+    description: 'Environment to deploy to (dev, pre, prod, or auto for branch-based)'
+    required: false
+    default: 'auto'
+  version:
+    description: 'Version to deploy (overrides package.json version)'
+    required: false
+  force-deploy:
+    description: 'Force deployment even if version already exists'
+    required: false
+    default: 'false'
+
+outputs:
+  deployed-version:
+    description: 'Version that was deployed'
+    value: ${{ steps.get-version.outputs.version }}
+  deployment-environment:
+    description: 'Environment where deployment occurred'
+    value: ${{ steps.determine-env.outputs.environment }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install yq for YAML parsing
+      shell: bash
+      run: |
+        # Install yq for proper YAML parsing
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+        yq --version
+
+    - name: Load Configuration
+      id: load-config
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ inputs.config-file }}"
+        
+        # Validate config file exists
+        if [[ ! -f "$CONFIG_FILE" ]]; then
+          echo "::error::Configuration file $CONFIG_FILE not found"
+          echo "Please ensure the configuration file exists in your repository root"
+          exit 1
+        fi
+        
+        # Validate YAML syntax
+        if ! yq eval '.' "$CONFIG_FILE" > /dev/null 2>&1; then
+          echo "::error::Invalid YAML syntax in $CONFIG_FILE"
+          exit 1
+        fi
+        
+        # Parse and validate required fields
+        PROJECT_NAME=$(yq eval '.project.name' "$CONFIG_FILE")
+        PROJECT_RUNTIME=$(yq eval '.project.runtime' "$CONFIG_FILE")
+        
+        if [[ "$PROJECT_NAME" == "null" || -z "$PROJECT_NAME" ]]; then
+          echo "::error::Missing required field: project.name in $CONFIG_FILE"
+          exit 1
+        fi
+        
+        if [[ "$PROJECT_RUNTIME" == "null" || -z "$PROJECT_RUNTIME" ]]; then
+          echo "::error::Missing required field: project.runtime in $CONFIG_FILE"
+          exit 1
+        fi
+        
+        # Validate runtime is supported
+        if [[ ! "$PROJECT_RUNTIME" =~ ^(bun|node|python)$ ]]; then
+          echo "::error::Unsupported runtime: $PROJECT_RUNTIME. Supported: bun, node, python"
+          exit 1
+        fi
+        
+        # Set outputs
+        echo "config-loaded=true" >> $GITHUB_OUTPUT
+        echo "project-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+        echo "project-runtime=$PROJECT_RUNTIME" >> $GITHUB_OUTPUT
+        echo "config-file-path=$CONFIG_FILE" >> $GITHUB_OUTPUT
+        
+        echo "✅ Configuration loaded successfully:"
+        echo "  - Project: $PROJECT_NAME"
+        echo "  - Runtime: $PROJECT_RUNTIME"
+
+    - name: Determine Environment
+      id: determine-env
+      shell: bash
+      run: |
+        set -e
+        
+        if [[ "${{ inputs.environment }}" != "auto" ]]; then
+          ENV="${{ inputs.environment }}"
+        else
+          # Auto-detect based on branch
+          BRANCH="${{ github.ref_name }}"
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            ENV="dev"
+          elif [[ "$BRANCH" =~ ^feature/MMDSQ ]]; then
+            ENV="dev"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="pre"  # Default for manual triggers
+          else
+            echo "::error::Cannot determine environment for branch: $BRANCH"
+            exit 1
+          fi
+        fi
+        
+        echo "environment=$ENV" >> $GITHUB_OUTPUT
+        echo "Deploying to environment: $ENV"
+
+    - name: Get Version
+      id: get-version
+      shell: bash
+      run: |
+        set -e
+        
+        if [[ -n "${{ inputs.version }}" ]]; then
+          VERSION="${{ inputs.version }}"
+        elif [[ -f "package.json" ]]; then
+          VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "")
+        fi
+        
+        if [[ -z "$VERSION" ]]; then
+          # Fallback to git commit
+          VERSION="$(git rev-parse --short HEAD)"
+          echo "::warning::No version found in package.json, using commit SHA: $VERSION"
+        fi
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version to deploy: $VERSION"
+
+    - name: Setup Runtime Environment
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        # Get runtime from configuration
+        RUNTIME="${{ steps.load-config.outputs.project-runtime }}"
+        echo "RUNTIME=$RUNTIME" >> $GITHUB_ENV
+        
+        # Get runtime versions from configuration (with defaults)
+        case "$RUNTIME" in
+          "bun")
+            BUN_VERSION=$(yq eval '.project.versions.bun // "latest"' "$CONFIG_FILE")
+            echo "BUN_VERSION=$BUN_VERSION" >> $GITHUB_ENV
+            echo "Configuring Bun runtime (version: $BUN_VERSION)"
+            ;;
+          "node")
+            NODE_VERSION=$(yq eval '.project.versions.node // "18"' "$CONFIG_FILE")
+            echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+            echo "Configuring Node.js runtime (version: $NODE_VERSION)"
+            ;;
+          "python")
+            PYTHON_VERSION=$(yq eval '.project.versions.python // "3.9"' "$CONFIG_FILE")
+            echo "PYTHON_VERSION=$PYTHON_VERSION" >> $GITHUB_ENV
+            echo "Configuring Python runtime (version: $PYTHON_VERSION)"
+            ;;
+        esac
+
+    - name: Setup Bun
+      if: env.RUNTIME == 'bun'
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: ${{ env.BUN_VERSION }}
+
+    - name: Setup Node.js
+      if: env.RUNTIME == 'node'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Setup Python
+      if: env.RUNTIME == 'python'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        # Get custom install command from config, fallback to defaults
+        INSTALL_CMD=$(yq eval '.build.commands.install // "auto"' "$CONFIG_FILE")
+        
+        if [[ "$INSTALL_CMD" != "auto" ]]; then
+          echo "Using custom install command: $INSTALL_CMD"
+          eval "$INSTALL_CMD"
+        else
+          echo "Using automatic dependency installation for $RUNTIME"
+          case "$RUNTIME" in
+            "bun")
+              if [[ -f "bun.lockb" ]]; then
+                bun install --frozen-lockfile
+              else
+                bun install
+              fi
+              ;;
+            "node")
+              if [[ -f "package-lock.json" ]]; then
+                npm ci
+              elif [[ -f "yarn.lock" ]]; then
+                yarn install --frozen-lockfile
+              else
+                npm install
+              fi
+              ;;
+            "python")
+              if [[ -f "requirements.txt" ]]; then
+                pip install -r requirements.txt
+              fi
+              ;;
+          esac
+        fi
+
+    - name: Run Linting
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        # Get custom lint command from config
+        LINT_CMD=$(yq eval '.build.commands.lint // "auto"' "$CONFIG_FILE")
+        LINT_REQUIRED=$(yq eval '.build.lint_required // false' "$CONFIG_FILE")
+        
+        if [[ "$LINT_CMD" != "auto" && "$LINT_CMD" != "null" ]]; then
+          echo "Running custom lint command: $LINT_CMD"
+          if ! eval "$LINT_CMD"; then
+            if [[ "$LINT_REQUIRED" == "true" ]]; then
+              echo "::error::Linting failed and is required by configuration"
+              exit 1
+            else
+              echo "::warning::Linting failed but is not required"
+            fi
+          fi
+        else
+          echo "Running automatic linting for $RUNTIME"
+          LINT_SUCCESS=false
+          
+          case "$RUNTIME" in
+            "bun")
+              if bun run --silent lint 2>/dev/null; then
+                echo "Running bun lint..."
+                bun run lint && LINT_SUCCESS=true
+              fi
+              ;;
+            "node")
+              if npm run --silent lint 2>/dev/null; then
+                echo "Running npm lint..."
+                npm run lint && LINT_SUCCESS=true
+              fi
+              ;;
+            "python")
+              if command -v flake8 &> /dev/null; then
+                echo "Running flake8..."
+                flake8 . && LINT_SUCCESS=true || echo "Linting completed with warnings"
+              fi
+              ;;
+          esac
+          
+          if [[ "$LINT_SUCCESS" == "false" && "$LINT_REQUIRED" == "true" ]]; then
+            echo "::error::No lint command found but linting is required by configuration"
+            exit 1
+          elif [[ "$LINT_SUCCESS" == "false" ]]; then
+            echo "No lint script found, skipping..."
+          fi
+        fi
+
+    - name: Run Tests
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        # Get custom test command from config
+        TEST_CMD=$(yq eval '.build.commands.test // "auto"' "$CONFIG_FILE")
+        TESTS_REQUIRED=$(yq eval '.build.tests_required // true' "$CONFIG_FILE")
+        
+        if [[ "$TEST_CMD" != "auto" && "$TEST_CMD" != "null" ]]; then
+          echo "Running custom test command: $TEST_CMD"
+          if ! eval "$TEST_CMD"; then
+            if [[ "$TESTS_REQUIRED" == "true" ]]; then
+              echo "::error::Tests failed and are required by configuration"
+              exit 1
+            else
+              echo "::warning::Tests failed but are not required"
+            fi
+          fi
+        else
+          echo "Running automatic tests for $RUNTIME"
+          TESTS_SUCCESS=false
+          
+          case "$RUNTIME" in
+            "bun")
+              if bun run --silent test 2>/dev/null; then
+                echo "Running bun tests..."
+                bun test && TESTS_SUCCESS=true
+              fi
+              ;;
+            "node")
+              if npm run --silent test 2>/dev/null; then
+                echo "Running npm tests..."
+                npm test && TESTS_SUCCESS=true
+              fi
+              ;;
+            "python")
+              if command -v pytest &> /dev/null; then
+                echo "Running pytest..."
+                pytest && TESTS_SUCCESS=true
+              elif [[ -f "test_*.py" ]] || [[ -d "tests" ]]; then
+                echo "Running python tests..."
+                python -m unittest discover && TESTS_SUCCESS=true
+              fi
+              ;;
+          esac
+          
+          if [[ "$TESTS_SUCCESS" == "false" && "$TESTS_REQUIRED" == "true" ]]; then
+            echo "::error::No test command found but tests are required by configuration"
+            exit 1
+          elif [[ "$TESTS_SUCCESS" == "false" ]]; then
+            echo "No test script found, skipping..."
+          fi
+        fi
+
+    - name: Build Lambda Package
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        # Get custom build command from config
+        BUILD_CMD=$(yq eval '.build.commands.build // "auto"' "$CONFIG_FILE")
+        ARTIFACT_PATH=$(yq eval '.build.artifact.path // "build/lambda.zip"' "$CONFIG_FILE")
+        
+        # Security: Validate artifact path to prevent directory traversal
+        if [[ "$ARTIFACT_PATH" =~ \.\. ]]; then
+          echo "::error::Invalid artifact path contains '..': $ARTIFACT_PATH"
+          exit 1
+        fi
+        
+        # Ensure build directory exists
+        BUILD_DIR=$(dirname "$ARTIFACT_PATH")
+        mkdir -p "$BUILD_DIR"
+        
+        if [[ "$BUILD_CMD" != "auto" && "$BUILD_CMD" != "null" ]]; then
+          echo "Running custom build command: $BUILD_CMD"
+          if ! eval "$BUILD_CMD"; then
+            echo "::error::Custom build command failed"
+            exit 1
+          fi
+        else
+          echo "Running automatic build for $RUNTIME"
+          case "$RUNTIME" in
+            "bun")
+              if bun run --silent zip 2>/dev/null; then
+                bun run zip
+              elif bun run --silent build 2>/dev/null; then
+                bun run build
+                # Create zip if build doesn't create it
+                if [[ ! -f "$ARTIFACT_PATH" ]] && [[ -d "$BUILD_DIR" ]]; then
+                  cd "$BUILD_DIR" && zip -r lambda.zip . && cd - >/dev/null
+                fi
+              else
+                echo "::error::No build script found. Please add 'zip' or 'build' script to package.json"
+                exit 1
+              fi
+              ;;
+            "node")
+              if npm run --silent zip 2>/dev/null; then
+                npm run zip
+              elif npm run --silent build 2>/dev/null; then
+                npm run build
+                # Create zip if build doesn't create it
+                if [[ ! -f "$ARTIFACT_PATH" ]] && [[ -d "$BUILD_DIR" ]]; then
+                  cd "$BUILD_DIR" && zip -r lambda.zip . && cd - >/dev/null
+                fi
+              else
+                echo "::error::No build script found. Please add 'zip' or 'build' script to package.json"
+                exit 1
+              fi
+              ;;
+            "python")
+              # Standard Python Lambda packaging with security considerations
+              if [[ -f "requirements.txt" ]]; then
+                pip install -r requirements.txt -t "$BUILD_DIR/"
+              fi
+              # Copy Python files, excluding test files and sensitive files
+              find . -name "*.py" -not -path "./tests/*" -not -path "./.git/*" -not -name "*test*.py" -exec cp {} "$BUILD_DIR/" \;
+              if [[ -d "src" ]]; then
+                cp -r src/* "$BUILD_DIR/" 2>/dev/null || true
+              fi
+              cd "$BUILD_DIR" && zip -r lambda.zip . && cd - >/dev/null
+              ;;
+          esac
+        fi
+        
+        # Verify package was created
+        if [[ ! -f "$ARTIFACT_PATH" ]]; then
+          echo "::error::Lambda package not found at $ARTIFACT_PATH"
+          exit 1
+        fi
+        
+        # Security: Check package size (Lambda has limits)
+        PACKAGE_SIZE=$(stat -f%z "$ARTIFACT_PATH" 2>/dev/null || stat -c%s "$ARTIFACT_PATH")
+        PACKAGE_SIZE_MB=$((PACKAGE_SIZE / 1024 / 1024))
+        
+        if [[ $PACKAGE_SIZE_MB -gt 250 ]]; then
+          echo "::warning::Lambda package is ${PACKAGE_SIZE_MB}MB, which exceeds AWS Lambda deployment package size limit (250MB unzipped)"
+        fi
+        
+        echo "✅ Lambda package created: $(ls -lh "$ARTIFACT_PATH")"
+        echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_ENV
+
+    - name: Configure AWS Credentials (OIDC)
+      if: steps.determine-env.outputs.environment != 'skip' && env.AWS_AUTH_TYPE == 'oidc'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ env.AWS_REGION }}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+    - name: Configure AWS Credentials (Access Keys)
+      if: steps.determine-env.outputs.environment != 'skip' && env.AWS_AUTH_TYPE == 'access_key'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ env.AWS_REGION }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Validate AWS Configuration
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        set -e
+        
+        echo "Validating AWS configuration..."
+        
+        # Test AWS credentials
+        if ! aws sts get-caller-identity > /dev/null 2>&1; then
+          echo "::error::AWS credentials validation failed"
+          exit 1
+        fi
+        
+        # Validate S3 bucket exists and is accessible
+        if ! aws s3 ls "s3://${{ env.S3_BUCKET_NAME }}" > /dev/null 2>&1; then
+          echo "::error::Cannot access S3 bucket: ${{ env.S3_BUCKET_NAME }}"
+          exit 1
+        fi
+        
+        # Validate Lambda function exists
+        if ! aws lambda get-function --function-name "${{ env.LAMBDA_FUNCTION_NAME }}" > /dev/null 2>&1; then
+          echo "::error::Lambda function not found: ${{ env.LAMBDA_FUNCTION_NAME }}"
+          exit 1
+        fi
+        
+        echo "✅ AWS configuration validated successfully"
+
+    - name: Check Version Conflicts
+      id: version-check
+      shell: bash
+      run: |
+        set -e
+        
+        ENV="${{ steps.determine-env.outputs.environment }}"
+        VERSION="${{ steps.get-version.outputs.version }}"
+        S3_BUCKET="${{ env.S3_BUCKET_NAME }}"
+        LAMBDA_FUNCTION="${{ env.LAMBDA_FUNCTION_NAME }}"
+        FORCE_DEPLOY="${{ inputs.force-deploy }}"
+        
+        # Skip version check for dev environment or if force deploy is enabled
+        if [[ "$ENV" == "dev" || "$FORCE_DEPLOY" == "true" ]]; then
+          echo "Skipping version conflict check for $ENV environment or force deployment"
+          echo "can-deploy=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check if version already exists in S3
+        if aws s3 ls "s3://$S3_BUCKET/$LAMBDA_FUNCTION/versions/$VERSION/" > /dev/null 2>&1; then
+          echo "::warning::Version $VERSION already exists in S3"
+          echo "::error::Version conflict detected. Use force-deploy: true to override, or increment the version."
+          echo "can-deploy=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        echo "✅ No version conflicts detected"
+        echo "can-deploy=true" >> $GITHUB_OUTPUT
+
+    - name: Deploy to S3 and Lambda
+      id: deploy-to-s3
+      if: steps.version-check.outputs.can-deploy == 'true'
+      shell: bash
+      run: |
+        set -e
+        
+        ENV="${{ steps.determine-env.outputs.environment }}"
+        VERSION="${{ steps.get-version.outputs.version }}"
+        S3_BUCKET="${{ env.S3_BUCKET_NAME }}"
+        LAMBDA_FUNCTION="${{ env.LAMBDA_FUNCTION_NAME }}"
+        ARTIFACT_PATH="${{ env.ARTIFACT_PATH }}"
+        
+        echo "🚀 Starting deployment to $ENV environment..."
+        echo "  Version: $VERSION"
+        echo "  S3 Bucket: $S3_BUCKET"
+        echo "  Lambda Function: $LAMBDA_FUNCTION"
+        echo "  Package: $ARTIFACT_PATH"
+        
+        # Generate unique S3 key for this deployment
+        TIMESTAMP=$(date +%s)
+        S3_KEY_BASE="$LAMBDA_FUNCTION"
+        
+        # Upload to S3 with retry logic
+        echo "📦 Uploading package to S3..."
+        if [[ "$ENV" == "dev" ]]; then
+          # For dev, use timestamp to avoid conflicts
+          S3_KEY="$S3_KEY_BASE/dev/$TIMESTAMP/lambda.zip"
+          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP"
+        else
+          # For pre/prod, use versioning
+          S3_KEY="$S3_KEY_BASE/versions/$VERSION/lambda.zip"
+          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION"
+          # Also update latest
+          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY_BASE/latest/lambda.zip" --metadata "environment=$ENV,version=$VERSION"
+        fi
+        
+        # Update Lambda function with retry logic
+        echo "🔄 Updating Lambda function..."
+        RETRY_COUNT=0
+        MAX_RETRIES=3
+        
+        while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
+          if aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --s3-bucket "$S3_BUCKET" \
+            --s3-key "$S3_KEY" \
+            --publish > /tmp/lambda-update.json; then
+            break
+          else
+            ((RETRY_COUNT++))
+            if [[ $RETRY_COUNT -eq $MAX_RETRIES ]]; then
+              echo "::error::Failed to update Lambda function after $MAX_RETRIES attempts"
+              exit 1
+            fi
+            echo "Retry $RETRY_COUNT/$MAX_RETRIES in 10 seconds..."
+            sleep 10
+          fi
+        done
+        
+        # Get the deployed version info
+        LAMBDA_VERSION=$(jq -r '.Version' /tmp/lambda-update.json)
+        LAMBDA_SIZE=$(jq -r '.CodeSize' /tmp/lambda-update.json)
+        
+        # Tag the version with comprehensive metadata
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        COMMIT_SHA_SHORT=$(git rev-parse --short HEAD)
+        BRANCH_NAME="${{ github.ref_name }}"
+        
+        TAGS="Version=$VERSION,Environment=$ENV,CommitSHA=$COMMIT_SHA_SHORT,Branch=$BRANCH_NAME,DeployedBy=${{ github.actor }},Timestamp=$TIMESTAMP"
+        
+        aws lambda tag-resource \
+          --resource "arn:aws:lambda:${{ env.AWS_REGION }}:$ACCOUNT_ID:function:$LAMBDA_FUNCTION:$LAMBDA_VERSION" \
+          --tags "$TAGS" || echo "::warning::Failed to tag Lambda function"
+        
+        echo "✅ Deployment completed successfully!"
+        echo "  Lambda Version: $LAMBDA_VERSION"
+        echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
+        echo "  S3 Location: s3://$S3_BUCKET/$S3_KEY"
+        
+        # Set outputs for next steps
+        echo "lambda-version=$LAMBDA_VERSION" >> $GITHUB_OUTPUT
+        echo "s3-location=s3://$S3_BUCKET/$S3_KEY" >> $GITHUB_OUTPUT
+        echo "package-size=$LAMBDA_SIZE" >> $GITHUB_OUTPUT
+
+    - name: Validate Deployment
+      id: validate-deployment
+      if: steps.version-check.outputs.can-deploy == 'true'
+      shell: bash
+      run: |
+        set -e
+        
+        LAMBDA_FUNCTION="${{ env.LAMBDA_FUNCTION_NAME }}"
+        
+        echo "🔍 Validating deployment..."
+        
+        # Wait for function to be ready
+        echo "Waiting for Lambda function to be active..."
+        aws lambda wait function-active --function-name "$LAMBDA_FUNCTION"
+        
+        # Get function configuration
+        FUNCTION_INFO=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION")
+        STATE=$(echo "$FUNCTION_INFO" | jq -r '.Configuration.State')
+        LAST_UPDATE_STATUS=$(echo "$FUNCTION_INFO" | jq -r '.Configuration.LastUpdateStatus')
+        
+        if [[ "$STATE" != "Active" ]]; then
+          echo "::error::Lambda function is not in Active state: $STATE"
+          exit 1
+        fi
+        
+        if [[ "$LAST_UPDATE_STATUS" != "Successful" ]]; then
+          echo "::error::Lambda function update failed: $LAST_UPDATE_STATUS"
+          exit 1
+        fi
+        
+        # Optional: Test function with a simple invocation (if test payload is configured)
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        TEST_PAYLOAD=$(yq eval '.deployment.health_check.test_payload // null' "$CONFIG_FILE")
+        
+        if [[ "$TEST_PAYLOAD" != "null" ]]; then
+          echo "Running health check with test payload..."
+          if aws lambda invoke --function-name "$LAMBDA_FUNCTION" --payload "$TEST_PAYLOAD" /tmp/test-response.json > /dev/null 2>&1; then
+            echo "✅ Health check passed"
+          else
+            echo "::warning::Health check failed - function may still work for other inputs"
+          fi
+        fi
+        
+        echo "✅ Deployment validation completed successfully!"
+        echo "deployment-validated=true" >> $GITHUB_OUTPUT
+
+    - name: Send Teams Notification
+      if: steps.determine-env.outputs.environment == 'prod' && env.TEAMS_WEBHOOK_URL != '' && steps.validate-deployment.outputs.deployment-validated == 'true'
+      shell: bash
+      run: |
+        set -e
+        
+        # Prepare Teams message payload
+        WEBHOOK_URL="${{ env.TEAMS_WEBHOOK_URL }}"
+        VERSION="${{ steps.get-version.outputs.version }}"
+        FUNCTION_NAME="${{ env.LAMBDA_FUNCTION_NAME }}"
+        LAMBDA_VERSION="${{ steps.deploy-to-s3.outputs.lambda-version }}"
+        PACKAGE_SIZE_BYTES="${{ steps.deploy-to-s3.outputs.package-size }}"
+        
+        # Convert package size to human readable format
+        if command -v numfmt &> /dev/null && [[ -n "$PACKAGE_SIZE_BYTES" ]]; then
+          PACKAGE_SIZE=$(numfmt --to=iec "$PACKAGE_SIZE_BYTES")
+        else
+          PACKAGE_SIZE="${PACKAGE_SIZE_BYTES:-Unknown} bytes"
+        fi
+        
+        # Create Teams adaptive card payload
+        PAYLOAD=$(cat <<EOF
+        {
+          "@type": "MessageCard",
+          "@context": "http://schema.org/extensions",
+          "themeColor": "28a745",
+          "summary": "Lambda Deployment Successful",
+          "sections": [{
+            "activityTitle": "🚀 Production Deployment Successful",
+            "activitySubtitle": "Lambda Function: **$FUNCTION_NAME**",
+            "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+            "facts": [{
+              "name": "Version Deployed:",
+              "value": "$VERSION"
+            }, {
+              "name": "Lambda Version:",
+              "value": "$LAMBDA_VERSION"
+            }, {
+              "name": "Package Size:",
+              "value": "$PACKAGE_SIZE"
+            }, {
+              "name": "Deployed By:",
+              "value": "${{ github.actor }}"
+            }, {
+              "name": "Repository:",
+              "value": "${{ github.repository }}"
+            }, {
+              "name": "Environment:",
+              "value": "PRODUCTION"
+            }, {
+              "name": "Commit:",
+              "value": "${{ github.sha }}"
+            }],
+            "markdown": true
+          }],
+          "potentialAction": [{
+            "@type": "OpenUri",
+            "name": "View Workflow Execution",
+            "targets": [{
+              "os": "default",
+              "uri": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }]
+          }, {
+            "@type": "OpenUri", 
+            "name": "View Repository",
+            "targets": [{
+              "os": "default",
+              "uri": "https://github.com/${{ github.repository }}"
+            }]
+          }]
+        }
+        EOF
+        )
+        
+        echo "Sending Teams notification..."
+        
+        # Send notification with retry logic
+        RETRY_COUNT=0
+        MAX_RETRIES=3
+        
+        while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
+          if curl -H "Content-Type: application/json" \
+                  -d "$PAYLOAD" \
+                  -w "HTTP Status: %{http_code}\n" \
+                  -o /tmp/teams-response.json \
+                  "$WEBHOOK_URL"; then
+            
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                              -H "Content-Type: application/json" \
+                              -d "$PAYLOAD" \
+                              "$WEBHOOK_URL")
+            
+            if [[ "$HTTP_STATUS" == "200" ]]; then
+              echo "✅ Teams notification sent successfully"
+              break
+            else
+              echo "⚠️ Teams notification returned HTTP $HTTP_STATUS"
+              cat /tmp/teams-response.json 2>/dev/null || echo "No response body"
+            fi
+          fi
+          
+          ((RETRY_COUNT++))
+          if [[ $RETRY_COUNT -eq $MAX_RETRIES ]]; then
+            echo "::warning::Failed to send Teams notification after $MAX_RETRIES attempts"
+            echo "This does not affect the deployment success"
+            break
+          fi
+          
+          echo "Retrying Teams notification ($RETRY_COUNT/$MAX_RETRIES) in 5 seconds..."
+          sleep 5
+        done

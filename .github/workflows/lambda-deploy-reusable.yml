@@ -1,0 +1,118 @@
+name: 'Reusable Lambda Deploy Workflow'
+
+on:
+  workflow_call:
+    inputs:
+      config-file:
+        description: 'Path to the lambda deploy configuration file'
+        required: false
+        type: string
+        default: 'lambda-deploy-config.yml'
+      environment:
+        description: 'Environment to deploy to (dev, pre, prod, or auto)'
+        required: false
+        type: string
+        default: 'auto'
+      version:
+        description: 'Version to deploy (overrides package.json version)'
+        required: false
+        type: string
+      force-deploy:
+        description: 'Force deployment even if version already exists'
+        required: false
+        type: boolean
+        default: false
+      action-ref:
+        description: 'Reference to the lambda-deploy action (e.g., YourOrg/devops-actions/.github/actions/lambda-deploy@v1.0.0)'
+        required: false
+        type: string
+        default: 'main'
+    outputs:
+      deployed-version:
+        description: 'Version that was deployed'
+        value: ${{ jobs.deploy.outputs.deployed-version }}
+      deployment-environment:
+        description: 'Environment where deployment occurred'
+        value: ${{ jobs.deploy.outputs.deployment-environment }}
+
+jobs:
+  deploy:
+    name: Deploy Lambda Function
+    runs-on: ubuntu-latest
+    outputs:
+      deployed-version: ${{ steps.deploy-lambda.outputs.deployed-version }}
+      deployment-environment: ${{ steps.deploy-lambda.outputs.deployment-environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load Lambda Deploy Configuration
+        id: load-config
+        run: |
+          set -e
+          CONFIG_FILE="${{ inputs.config-file }}"
+          
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "::error::Configuration file $CONFIG_FILE not found"
+            exit 1
+          fi
+          
+          # Parse configuration and set environment variables
+          # This is a simplified version - real implementation would use yq
+          
+          # Set default AWS region
+          echo "AWS_REGION=eu-west-1" >> $GITHUB_ENV
+          
+          # Determine auth type based on environment
+          ENV="${{ inputs.environment }}"
+          if [[ "$ENV" == "auto" ]]; then
+            # Auto-detect environment
+            BRANCH="${{ github.ref_name }}"
+            if [[ "$BRANCH" =~ ^feature/MMDSQ ]] || [[ "$BRANCH" == "main" ]]; then
+              ENV="dev"
+            elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              ENV="pre"
+            fi
+          fi
+          
+          # Set auth type and other env vars based on environment
+          case "$ENV" in
+            "dev")
+              echo "AWS_AUTH_TYPE=access_key" >> $GITHUB_ENV
+              echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_NAME }}" >> $GITHUB_ENV
+              echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME }}" >> $GITHUB_ENV
+              ;;
+            "pre"|"prod")
+              echo "AWS_AUTH_TYPE=oidc" >> $GITHUB_ENV
+              echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_NAME }}" >> $GITHUB_ENV
+              echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME }}" >> $GITHUB_ENV
+              if [[ "$ENV" == "prod" ]]; then
+                echo "TEAMS_WEBHOOK_URL=${{ secrets.TEAMS_WEBHOOK_URL }}" >> $GITHUB_ENV
+              fi
+              ;;
+          esac
+
+      - name: Deploy Lambda using Generic Action
+        id: deploy-lambda
+        uses: ${{ inputs.action-ref || format('{0}/.github/actions/lambda-deploy@{1}', github.repository, github.ref) }}
+        with:
+          config-file: ${{ inputs.config-file }}
+          environment: ${{ inputs.environment }}
+          version: ${{ inputs.version }}
+          force-deploy: ${{ inputs.force-deploy }}
+
+      - name: Deployment Summary
+        run: |
+          VERSION="${{ steps.deploy-lambda.outputs.deployed-version }}"
+          ENV="${{ steps.deploy-lambda.outputs.deployment-environment }}"
+          
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully deployed version **$VERSION** to **$ENV** environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 **Details:**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

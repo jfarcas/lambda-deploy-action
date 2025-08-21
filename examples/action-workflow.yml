@@ -1,0 +1,84 @@
+name: Lambda Deploy - Direct Action Usage
+
+on:
+  push:
+    branches: 
+      - main
+      - 'feature/MMDSQ**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - pre
+        - prod
+      force_deploy:
+        description: 'Force deployment (ignore version conflicts)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy Lambda Function
+        uses: YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0
+        with:
+          # Required inputs
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          s3-bucket: ${{ vars.S3_BUCKET_NAME }}
+          lambda-function-name: ${{ vars.LAMBDA_FUNCTION_NAME }}
+          
+          # Environment configuration
+          environment: ${{ inputs.environment || 'dev' }}
+          
+          # Optional inputs with defaults
+          config-file: 'lambda-deploy-config.yml'
+          artifact-name: 'lambda-deployment-${{ github.run_id }}'
+          force-deploy: ${{ inputs.force_deploy || 'false' }}
+          
+          # AWS Authentication (choose one method)
+          # Method 1: Access Keys (for development)
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          
+          # Method 2: OIDC (for production - comment out access keys above)
+          # aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          
+          # Optional notification settings
+          teams-webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          
+          # Debug settings (optional)
+          debug-mode: ${{ vars.DEBUG_MODE || 'false' }}
+
+      - name: Post-deployment validation
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully"
+          echo "🔍 Function: ${{ vars.LAMBDA_FUNCTION_NAME }}"
+          echo "🌍 Environment: ${{ inputs.environment || 'dev' }}"
+          echo "📦 Artifact: lambda-deployment-${{ github.run_id }}"
+
+      - name: Handle deployment failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed"
+          echo "📋 Check the action logs for detailed error information"
+          echo "🔧 Common fixes:"
+          echo "   - Verify AWS credentials and permissions"
+          echo "   - Check lambda-deploy-config.yml syntax"
+          echo "   - Ensure Lambda function exists in target region"
+          exit 1

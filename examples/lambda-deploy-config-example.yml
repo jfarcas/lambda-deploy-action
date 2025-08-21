@@ -1,0 +1,128 @@
+# Lambda Deployment Configuration
+# This file should be in your repository root
+
+# Project information
+project:
+  name: "podcast-management-crud-channels"
+  description: "Lambda function for podcast channel CRUD operations"
+  runtime: "bun"  # Options: bun, node, python
+  
+  # Runtime versions (optional - uses defaults if not specified)
+  versions:
+    bun: "latest"     # Default: latest
+    node: "18"        # Default: 18
+    python: "3.9"     # Default: 3.9
+  
+# Build configuration
+build:
+  # Customizable commands by runtime (use "auto" for automatic detection)
+  commands:
+    install: "auto"                           # Dependency installation command
+    lint: "auto"                              # Linting command (optional)
+    test: "auto"                              # Testing command (optional)
+    build: "auto"                             # Build command
+  
+  # Quality gates
+  lint_required: false                        # Fail build if linting fails
+  tests_required: true                        # Fail build if tests fail
+  
+  # Artifact configuration
+  artifact:
+    path: "build/lambda.zip"                  # Path where ZIP is generated
+    include_patterns: []                      # Additional patterns to include
+    exclude_patterns:                         # Patterns to exclude
+      - "*.md"
+      - "tests/"
+      - "*.test.js"
+      - ".env*"
+
+# Deployment configuration
+deployment:
+  # Health check configuration (optional)
+  health_check:
+    test_payload: '{"test": true}'            # Payload for post-deployment validation
+
+# Environment configuration
+environments:
+  # Entorno de desarrollo
+  dev:
+    # Ramas que activan despliegue automático a dev
+    trigger_branches: 
+      - "feature/MMDSQ**"
+      - "main"
+    
+    # Configuración AWS
+    aws:
+      region: "eu-west-1"
+      auth_type: "access_key"  # o "oidc"
+      
+    # Variables de GitHub (definidas en Settings > Variables)
+    variables:
+      s3_bucket: "S3_BUCKET_NAME"           # Nombre de la variable en GitHub
+      lambda_function: "LAMBDA_FUNCTION_NAME"
+    
+    # Configuración específica de dev
+    deployment:
+      versioning: false                      # No usar versionado en dev
+      run_tests: true                       # Ejecutar tests antes del despliegue
+      notifications: false                  # No enviar notificaciones
+  
+  # Entorno de preproducción
+  pre:
+    aws:
+      region: "eu-west-1"
+      auth_type: "oidc"
+      
+    variables:
+      s3_bucket: "S3_BUCKET_NAME"
+      lambda_function: "LAMBDA_FUNCTION_NAME"
+    
+    deployment:
+      versioning: true                      # Usar versionado en pre
+      run_tests: true
+      notifications: false
+      require_manual_approval: false       # Despliegue automático
+  
+  # Entorno de producción
+  prod:
+    aws:
+      region: "eu-west-1"
+      auth_type: "oidc"
+      
+    variables:
+      s3_bucket: "S3_BUCKET_NAME"
+      lambda_function: "LAMBDA_FUNCTION_NAME"
+    
+    deployment:
+      versioning: true
+      run_tests: true
+      notifications: true                   # Enviar notificaciones
+      require_manual_approval: true        # Requiere aprobación manual
+    
+    # Configuración de notificaciones
+    notifications:
+      teams:
+        webhook_secret: "TEAMS_WEBHOOK_URL" # Nombre del secret en GitHub
+        
+# Configuración avanzada (opcional)
+advanced:
+  # Configuración de timeouts
+  timeouts:
+    build: 10                              # Minutos
+    deploy: 5                              # Minutos
+    
+  # Configuración de reintentos
+  retry:
+    attempts: 3
+    delay: 30                              # Segundos
+    
+  # Configuración de logs
+  logging:
+    level: "INFO"                          # DEBUG, INFO, WARN, ERROR
+    
+  # Hooks personalizados (opcional)
+  hooks:
+    pre_build: ""                          # Comando a ejecutar antes del build
+    post_build: ""                         # Comando a ejecutar después del build
+    pre_deploy: ""                         # Comando a ejecutar antes del deploy
+    post_deploy: ""                        # Comando a ejecutar después del deploy
