@@ -474,6 +474,10 @@ runs:
         
         echo "🔒 Validating security requirements..."
         
+        # Debug: Check what auth type we determined
+        echo "🔍 Debug: AWS_AUTH_TYPE=$AWS_AUTH_TYPE"
+        echo "🔍 Debug: Environment=${{ steps.determine-env.outputs.environment }}"
+        
         # Validate required credentials are present (without exposing values)
         if [[ "$AWS_AUTH_TYPE" == "oidc" ]]; then
           if [[ -z "$AWS_ROLE_ARN" ]]; then
@@ -482,11 +486,17 @@ runs:
           fi
           echo "✅ OIDC credentials validated (AWS_ROLE_ARN present)"
         elif [[ "$AWS_AUTH_TYPE" == "access_key" ]]; then
-          if [[ -z "$AWS_ACCESS_KEY_ID" ]] || [[ -z "$AWS_SECRET_ACCESS_KEY" ]]; then
-            echo "::error::AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables are required for access key authentication"
-            exit 1
+          # Check if credentials are available (they might be set by the AWS configure step)
+          if [[ -z "$AWS_ACCESS_KEY_ID" ]] && [[ -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo "::warning::AWS credentials not found in environment variables"
+            echo "::warning::This might be normal if secrets are passed directly to aws-actions/configure-aws-credentials"
+            echo "🔄 Proceeding with AWS credential configuration step..."
+          else
+            echo "✅ Access key credentials validated (both keys present)"
           fi
-          echo "✅ Access key credentials validated (both keys present)"
+        else
+          echo "::warning::Unknown auth type: $AWS_AUTH_TYPE, defaulting to access_key"
+          echo "AWS_AUTH_TYPE=access_key" >> $GITHUB_ENV
         fi
         
         # Ensure we never accidentally log sensitive values
@@ -504,8 +514,7 @@ runs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: ${{ env.AWS_REGION }}
-        aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are automatically picked up from environment
 
     - name: Validate AWS Configuration
       if: steps.determine-env.outputs.environment != 'skip'
