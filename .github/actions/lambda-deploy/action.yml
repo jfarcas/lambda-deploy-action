@@ -445,6 +445,27 @@ runs:
         echo "✅ Lambda package created: $(ls -lh "$ARTIFACT_PATH")"
         echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_ENV
 
+    - name: Determine AWS Authentication Type
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        set -e
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        ENV="${{ steps.determine-env.outputs.environment }}"
+        
+        # Get auth type from environment configuration
+        AUTH_TYPE=$(yq eval ".environments.$ENV.aws.auth_type // \"access_key\"" "$CONFIG_FILE")
+        
+        echo "AWS_AUTH_TYPE=$AUTH_TYPE" >> $GITHUB_ENV
+        echo "🔐 AWS Authentication Type: $AUTH_TYPE"
+        
+        # Also set AWS region from config if not already set
+        if [[ -z "$AWS_REGION" ]]; then
+          CONFIG_REGION=$(yq eval ".environments.$ENV.aws.region // \"eu-west-1\"" "$CONFIG_FILE")
+          echo "AWS_REGION=$CONFIG_REGION" >> $GITHUB_ENV
+          echo "🌍 AWS Region: $CONFIG_REGION"
+        fi
+
     - name: Validate Security Requirements
       if: steps.determine-env.outputs.environment != 'skip'
       shell: bash
