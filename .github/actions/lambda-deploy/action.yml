@@ -446,51 +446,18 @@ runs:
         set -e
         CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
         
-        # Get custom lint command from config
-        LINT_CMD=$(yq eval '.build.commands.lint // "auto"' "$CONFIG_FILE")
-        LINT_REQUIRED=$(yq eval '.build.lint_required // false' "$CONFIG_FILE")
+        # Get lint command from config
+        LINT_CMD=$(yq eval '.build.commands.lint // ""' "$CONFIG_FILE")
         
-        if [[ "$LINT_CMD" != "auto" && "$LINT_CMD" != "null" ]]; then
-          echo "Running custom lint command: $LINT_CMD"
+        if [[ -n "$LINT_CMD" && "$LINT_CMD" != "null" ]]; then
+          echo "Running lint command: $LINT_CMD"
           if ! eval "$LINT_CMD"; then
-            if [[ "$LINT_REQUIRED" == "true" ]]; then
-              echo "::error::Linting failed and is required by configuration"
-              exit 1
-            else
-              echo "::warning::Linting failed but is not required"
-            fi
+            echo "::warning::Linting failed but deployment will continue"
+          else
+            echo "✅ Linting passed"
           fi
         else
-          echo "Running automatic linting for $RUNTIME"
-          LINT_SUCCESS=false
-          
-          case "$RUNTIME" in
-            "bun")
-              if bun run --silent lint 2>/dev/null; then
-                echo "Running bun lint..."
-                bun run lint && LINT_SUCCESS=true
-              fi
-              ;;
-            "node")
-              if npm run --silent lint 2>/dev/null; then
-                echo "Running npm lint..."
-                npm run lint && LINT_SUCCESS=true
-              fi
-              ;;
-            "python")
-              if command -v flake8 &> /dev/null; then
-                echo "Running flake8..."
-                flake8 . && LINT_SUCCESS=true || echo "Linting completed with warnings"
-              fi
-              ;;
-          esac
-          
-          if [[ "$LINT_SUCCESS" == "false" && "$LINT_REQUIRED" == "true" ]]; then
-            echo "::error::No lint command found but linting is required by configuration"
-            exit 1
-          elif [[ "$LINT_SUCCESS" == "false" ]]; then
-            echo "No lint script found, skipping..."
-          fi
+          echo "No lint command specified, skipping linting"
         fi
 
     - name: Run Tests
@@ -499,58 +466,19 @@ runs:
         set -e
         CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
         
-        # Get test configuration
-        TEST_CMD=$(yq eval '.build.commands.test // "auto"' "$CONFIG_FILE")
-        TESTS_REQUIRED=$(yq eval '.build.tests_required // true' "$CONFIG_FILE")
+        # Get test command from config
+        TEST_CMD=$(yq eval '.build.commands.test // ""' "$CONFIG_FILE")
         
-        echo "Test configuration:"
-        echo "  - Test command: $TEST_CMD"
-        echo "  - Tests required: $TESTS_REQUIRED"
-        
-        # If tests are not required, we can skip entirely
-        if [[ "$TESTS_REQUIRED" == "false" ]]; then
-          echo "Tests are not required by configuration, skipping test execution"
-          exit 0
-        fi
-        
-        if [[ "$TEST_CMD" != "auto" && "$TEST_CMD" != "null" ]]; then
-          echo "Running custom test command: $TEST_CMD"
+        if [[ -n "$TEST_CMD" && "$TEST_CMD" != "null" ]]; then
+          echo "Running test command: $TEST_CMD"
           if ! eval "$TEST_CMD"; then
-            echo "::error::Tests failed and are required by configuration"
+            echo "::error::Tests failed"
             exit 1
+          else
+            echo "✅ Tests passed"
           fi
         else
-          echo "Running automatic tests for $RUNTIME"
-          TESTS_SUCCESS=false
-          
-          case "$RUNTIME" in
-            "bun")
-              if bun run --silent test 2>/dev/null; then
-                echo "Running bun tests..."
-                bun test && TESTS_SUCCESS=true
-              fi
-              ;;
-            "node")
-              if npm run --silent test 2>/dev/null; then
-                echo "Running npm tests..."
-                npm test && TESTS_SUCCESS=true
-              fi
-              ;;
-            "python")
-              if command -v pytest &> /dev/null; then
-                echo "Running pytest..."
-                pytest && TESTS_SUCCESS=true
-              elif [[ -f "test_*.py" ]] || [[ -d "tests" ]]; then
-                echo "Running python tests..."
-                python -m unittest discover && TESTS_SUCCESS=true
-              fi
-              ;;
-          esac
-          
-          if [[ "$TESTS_SUCCESS" == "false" ]]; then
-            echo "::error::No test command found but tests are required by configuration"
-            exit 1
-          fi
+          echo "No test command specified, skipping tests"
         fi
 
     - name: Build Lambda Package

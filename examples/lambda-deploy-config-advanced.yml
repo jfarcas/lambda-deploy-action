@@ -1,4 +1,4 @@
-# Advanced Lambda deployment configuration with auto-rollback
+# Advanced Lambda deployment configuration
 # This shows all available configuration options
 
 project:
@@ -10,9 +10,9 @@ project:
 build:
   commands:
     install: "pip install -r requirements.txt"
-    test: "python -m pytest tests/"
+    lint: "flake8 . --max-line-length=88"      # Optional: Specify lint command or omit to skip
+    test: "python -m pytest tests/ -v"        # Optional: Specify test command or omit to skip
     build: "auto"
-  tests_required: true
 
 environments:
   dev:

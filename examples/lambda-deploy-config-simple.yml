@@ -9,10 +9,10 @@ project:
 
 build:
   commands:
-    install: "auto"  # pip install -r requirements.txt
-    test: "auto"     # python -m pytest (if tests exist)
-    build: "auto"    # automatic packaging
-  tests_required: false
+    install: "pip install -r requirements.txt"  # Required: How to install dependencies
+    # lint: "flake8 ."                          # Optional: Lint command (leave empty to skip)
+    # test: "python -m pytest tests/"          # Optional: Test command (leave empty to skip)
+    build: "auto"                               # Required: How to build (auto = automatic packaging)
 
 environments:
   dev:
