@@ -1,0 +1,208 @@
+name: 'Generic Lambda Deploy'
+description: 'Reusable action to deploy Lambda functions with flexible configuration. Requires environment variables: S3_BUCKET_NAME, LAMBDA_FUNCTION_NAME, AWS_REGION, and AWS credentials (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY or AWS_ROLE_ARN).'
+
+inputs:
+  config-file:
+    description: 'Path to the lambda deploy configuration file'
+    required: false
+    default: 'lambda-deploy-config.yml'
+  environment:
+    description: 'Environment to deploy to (dev, pre, prod, or auto for branch-based)'
+    required: false
+    default: 'auto'
+  version:
+    description: 'Version to deploy (overrides package.json version)'
+    required: false
+  force-deploy:
+    description: 'Force deployment even if version already exists'
+    required: false
+    default: 'false'
+  rollback-to-version:
+    description: 'Version to rollback to (if specified, performs rollback instead of normal deployment)'
+    required: false
+  debug:
+    description: 'Enable debug output for troubleshooting'
+    required: false
+    default: 'false'
+
+outputs:
+  deployed-version:
+    description: 'Version that was deployed or rolled back to'
+    value: ${{ steps.get-version.outputs.version || steps.retrieve-rollback.outputs.version }}
+  deployment-environment:
+    description: 'Environment where deployment occurred'
+    value: ${{ steps.determine-env.outputs.environment }}
+  lambda-version:
+    description: 'Lambda function version number'
+    value: ${{ steps.deploy.outputs.lambda-version }}
+  s3-location:
+    description: 'S3 location of the deployment package'
+    value: ${{ steps.deploy.outputs.s3-location }}
+  deployment-type:
+    description: 'Type of deployment (deploy or rollback)'
+    value: ${{ steps.deployment-mode.outputs.deployment-mode }}
+  rollback-version:
+    description: 'Version that was rolled back to (only for rollback deployments)'
+    value: ${{ steps.retrieve-rollback.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    # Phase 1: Validation and Setup
+    - name: Validate Environment Variables
+      shell: bash
+      env:
+        DEBUG: ${{ inputs.debug }}
+      run: |
+        source ${{ github.action_path }}/scripts/validate-env.sh
+        validate_environment_variables
+
+    - name: Determine Deployment Mode
+      id: deployment-mode
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/deployment-mode.sh
+        determine_deployment_mode "${{ inputs.rollback-to-version }}"
+
+    - name: Setup Tools
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/setup-tools.sh
+        setup_tools
+
+    # Phase 2: Configuration Management
+    - name: Load Configuration
+      id: load-config
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/config-loader.sh
+        load_configuration "${{ inputs.config-file }}"
+
+    - name: Determine Environment
+      id: determine-env
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/environment-detector.sh
+        determine_environment "${{ inputs.environment }}"
+
+    # Phase 3: Version Management
+    - name: Get Version
+      id: get-version
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/version-detector.sh
+        detect_version "${{ inputs.version }}"
+
+    - name: Get Last Successful Version
+      id: get-last-version
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/version-history.sh
+        get_last_successful_version
+
+    # Phase 4: Runtime Setup and Build
+    - name: Setup Runtime Environment
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/runtime-setup.sh
+        setup_runtime_environment
+
+    - name: Install Dependencies
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/dependency-installer.sh
+        install_dependencies
+
+    - name: Run Quality Checks
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/quality-checks.sh
+        run_linting
+        run_tests
+
+    - name: Build Lambda Package
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/package-builder.sh
+        build_lambda_package
+
+    # Phase 5: AWS Operations
+    - name: Configure AWS Authentication
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/aws-auth.sh
+        configure_aws_authentication "${{ steps.determine-env.outputs.environment }}"
+
+    - name: Validate AWS Configuration
+      if: steps.determine-env.outputs.environment != 'skip'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/aws-validator.sh
+        validate_aws_configuration
+
+    - name: Check Version Conflicts
+      id: version-check
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/version-conflicts.sh
+        check_version_conflicts "${{ steps.determine-env.outputs.environment }}" \
+                                "${{ steps.get-version.outputs.version }}" \
+                                "${{ inputs.force-deploy }}"
+
+    # Phase 6: Deployment Operations
+    - name: Retrieve Rollback Artifact
+      id: retrieve-rollback
+      if: steps.deployment-mode.outputs.deployment-mode == 'rollback'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/rollback-retriever.sh
+        retrieve_rollback_artifact "${{ steps.deployment-mode.outputs.target-version }}" \
+                                   "${{ steps.determine-env.outputs.environment }}"
+
+    - name: Deploy to S3 and Lambda
+      id: deploy
+      if: steps.version-check.outputs.can-deploy == 'true' || steps.deployment-mode.outputs.deployment-mode == 'rollback'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/deployer.sh
+        deploy_to_lambda "${{ steps.deployment-mode.outputs.deployment-mode }}" \
+                        "${{ steps.determine-env.outputs.environment }}"
+
+    # Phase 7: Validation and Notifications
+    - name: Validate Deployment
+      id: validate-deployment
+      if: steps.version-check.outputs.can-deploy == 'true'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/deployment-validator.sh
+        validate_deployment
+
+    - name: Send Notifications
+      if: steps.determine-env.outputs.environment == 'prod' && env.TEAMS_WEBHOOK_URL != '' && steps.validate-deployment.outputs.deployment-validated == 'true'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/notifications.sh
+        send_teams_notification
+
+    # Phase 8: Error Recovery
+    - name: Auto-Rollback on Failure
+      id: auto-rollback
+      if: failure() && steps.deployment-mode.outputs.deployment-mode == 'deploy' && steps.get-last-version.outputs.last-version != ''
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/auto-rollback.sh
+        perform_auto_rollback "${{ steps.get-last-version.outputs.last-version }}" \
+                             "${{ steps.determine-env.outputs.environment }}"
+
+    - name: Auto-Rollback Health Check
+      if: steps.auto-rollback.outputs.rollback-completed == 'true'
+      shell: bash
+      run: |
+        source ${{ github.action_path }}/scripts/rollback-validator.sh
+        validate_rollback_health
