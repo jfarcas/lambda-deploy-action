@@ -86,9 +86,13 @@ run_rollback_functionality_test() {
     echo "Testing basic functionality with payload:"
     echo "$test_payload"
     
+    # Base64 encode the payload
+    local encoded_payload
+    encoded_payload=$(echo "$test_payload" | base64 -w 0)
+    
     if aws_retry 3 aws lambda invoke \
         --function-name "$lambda_function" \
-        --payload "$test_payload" \
+        --payload "$encoded_payload" \
         "$response_file" \
         --cli-read-timeout 30 \
         --cli-connect-timeout 10 > "$invoke_output" 2>&1; then
@@ -156,9 +160,13 @@ run_rollback_performance_check() {
         local test_payload='{"source":"rollback-performance-test","iteration":ITERATION}'
         test_payload=$(echo "$test_payload" | sed "s/ITERATION/$i/")
         
+        # Base64 encode the payload
+        local encoded_payload
+        encoded_payload=$(echo "$test_payload" | base64 -w 0)
+        
         if aws lambda invoke \
             --function-name "$lambda_function" \
-            --payload "$test_payload" \
+            --payload "$encoded_payload" \
             "/tmp/perf-test-$i.json" > /dev/null 2>&1; then
             
             end_time=$(date +%s.%3N)
@@ -247,9 +255,9 @@ run_rollback_integration_test() {
     # Run integration test
     local response_file="/tmp/integration-test-response.json"
     
-    # Read and compact the payload content
+    # Read, compact, and base64 encode the payload content
     local payload_content
-    payload_content=$(cat "$payload_file" | /usr/bin/jq -c .)
+    payload_content=$(cat "$payload_file" | /usr/bin/jq -c . | base64 -w 0)
     
     if aws_retry 2 aws lambda invoke \
         --function-name "$lambda_function" \
@@ -282,10 +290,12 @@ run_basic_connectivity_test() {
     
     # Simple ping-like test
     local ping_payload='{"action":"health_check","source":"rollback_validation"}'
+    local encoded_payload
+    encoded_payload=$(echo "$ping_payload" | base64 -w 0)
     
     if aws lambda invoke \
         --function-name "$lambda_function" \
-        --payload "$ping_payload" \
+        --payload "$encoded_payload" \
         /tmp/connectivity-test.json > /dev/null 2>&1; then
         
         echo "✅ Basic connectivity test passed"

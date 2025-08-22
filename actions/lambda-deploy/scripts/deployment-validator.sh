@@ -204,9 +204,9 @@ run_deployment_health_check() {
     local response_file="/tmp/health-check-response.json"
     local invoke_output="/tmp/health-check-invoke.json"
     
-    # Read and compact the payload content
+    # Read, compact, and base64 encode the payload as AWS CLI expects
     local payload_content
-    payload_content=$(cat "$payload_file" | /usr/bin/jq -c .)
+    payload_content=$(cat "$payload_file" | /usr/bin/jq -c . | base64 -w 0)
     
     if aws_retry 3 aws lambda invoke \
         --function-name "$lambda_function" \
@@ -393,12 +393,14 @@ run_rollback_health_check() {
     
     # Simple health check for rollback - just verify function responds
     local simple_payload='{"source":"rollback-health-check","test":true}'
+    local encoded_payload
+    encoded_payload=$(echo "$simple_payload" | base64 -w 0)
     
     local response_file="/tmp/rollback-health-response.json"
     
     if aws_retry 2 aws lambda invoke \
         --function-name "$lambda_function" \
-        --payload "$simple_payload" \
+        --payload "$encoded_payload" \
         "$response_file" > /dev/null 2>&1; then
         
         echo "✅ Rollback health check passed"
