@@ -858,15 +858,43 @@ runs:
         # Optional: Test function with a simple invocation (if test payload is configured)
         CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
         TEST_PAYLOAD=$(yq eval '.deployment.health_check.test_payload // null' "$CONFIG_FILE")
+        TEST_PAYLOAD_OBJECT=$(yq eval '.deployment.health_check.test_payload_object // null' "$CONFIG_FILE")
         
-        if [[ "$TEST_PAYLOAD" != "null" ]]; then
+        if [[ "$TEST_PAYLOAD" != "null" ]] || [[ "$TEST_PAYLOAD_OBJECT" != "null" ]]; then
           echo "Running health check with test payload..."
-          echo "Test payload: $TEST_PAYLOAD"
           
-          # Invoke the function and capture both stdout and stderr
+          # Determine which payload format to use
+          if [[ "$TEST_PAYLOAD_OBJECT" != "null" ]]; then
+            echo "Using YAML object format for payload"
+            # Convert YAML object to JSON
+            yq eval '.deployment.health_check.test_payload_object' "$CONFIG_FILE" -o json > /tmp/test-payload.json
+          else
+            echo "Using JSON string format for payload"
+            echo "Raw test payload from config: $TEST_PAYLOAD"
+            
+            # Clean and validate the JSON payload
+            # Remove any control characters and normalize
+            CLEANED_PAYLOAD=$(echo "$TEST_PAYLOAD" | tr -d '\r\n\t' | sed 's/[[:cntrl:]]//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$CLEANED_PAYLOAD" > /tmp/test-payload.json
+          fi
+          
+          # Validate JSON syntax
+          if ! jq . /tmp/test-payload.json > /dev/null 2>&1; then
+            echo "::error::Invalid JSON in test payload"
+            echo "::error::Payload content:"
+            cat /tmp/test-payload.json
+            echo "::error::Please check your configuration."
+            rm -f /tmp/test-payload.json
+            return 1
+          fi
+          
+          echo "Final test payload:"
+          cat /tmp/test-payload.json | jq . 2>/dev/null || cat /tmp/test-payload.json
+          
+          # Invoke the function using the file payload
           if aws lambda invoke \
             --function-name "$LAMBDA_FUNCTION" \
-            --payload "$TEST_PAYLOAD" \
+            --payload file:///tmp/test-payload.json \
             /tmp/test-response.json \
             --cli-read-timeout 30 \
             --cli-connect-timeout 10 > /tmp/invoke-output.json 2>&1; then
@@ -901,6 +929,9 @@ runs:
             cat /tmp/invoke-output.json 2>/dev/null || echo "No error details available"
             echo "::warning::Function may still work for other inputs or after initialization"
           fi
+          
+          # Clean up temporary files
+          rm -f /tmp/test-payload.json /tmp/test-response.json /tmp/invoke-output.json
         fi
         
         echo "✅ Deployment validation completed successfully!"
