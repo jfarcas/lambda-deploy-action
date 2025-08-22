@@ -107,6 +107,10 @@ runs:
     - name: Setup Runtime Environment
       if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
+        PROJECT_NAME: ${{ steps.load-config.outputs.project-name }}
+        PROJECT_RUNTIME: ${{ steps.load-config.outputs.project-runtime }}
       run: |
         source ${{ github.action_path }}/scripts/runtime-setup.sh
         setup_runtime_environment
@@ -114,6 +118,10 @@ runs:
     - name: Install Dependencies
       if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
+        PROJECT_NAME: ${{ steps.load-config.outputs.project-name }}
+        PROJECT_RUNTIME: ${{ steps.load-config.outputs.project-runtime }}
       run: |
         source ${{ github.action_path }}/scripts/dependency-installer.sh
         install_dependencies
@@ -121,6 +129,10 @@ runs:
     - name: Run Quality Checks
       if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
+        PROJECT_NAME: ${{ steps.load-config.outputs.project-name }}
+        PROJECT_RUNTIME: ${{ steps.load-config.outputs.project-runtime }}
       run: |
         source ${{ github.action_path }}/scripts/quality-checks.sh
         run_linting
@@ -129,6 +141,10 @@ runs:
     - name: Build Lambda Package
       if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
+        PROJECT_NAME: ${{ steps.load-config.outputs.project-name }}
+        PROJECT_RUNTIME: ${{ steps.load-config.outputs.project-runtime }}
       run: |
         source ${{ github.action_path }}/scripts/package-builder.sh
         build_lambda_package
@@ -137,6 +153,8 @@ runs:
     - name: Configure AWS Authentication
       if: steps.determine-env.outputs.environment != 'skip'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
       run: |
         source ${{ github.action_path }}/scripts/aws-auth.sh
         configure_aws_authentication "${{ steps.determine-env.outputs.environment }}"
@@ -181,6 +199,8 @@ runs:
       id: validate-deployment
       if: steps.version-check.outputs.can-deploy == 'true'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
       run: |
         source ${{ github.action_path }}/scripts/deployment-validator.sh
         validate_deployment
@@ -197,6 +217,8 @@ runs:
       id: auto-rollback
       if: failure() && steps.deployment-mode.outputs.deployment-mode == 'deploy' && steps.get-last-version.outputs.last-version != ''
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
       run: |
         source ${{ github.action_path }}/scripts/auto-rollback.sh
         perform_auto_rollback "${{ steps.get-last-version.outputs.last-version }}" \
@@ -205,6 +227,8 @@ runs:
     - name: Auto-Rollback Health Check
       if: steps.auto-rollback.outputs.rollback-completed == 'true'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
       run: |
         source ${{ github.action_path }}/scripts/rollback-validator.sh
         validate_rollback_health
