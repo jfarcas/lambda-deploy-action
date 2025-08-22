@@ -115,48 +115,6 @@ runs:
           echo "DEPLOYMENT_MODE=deploy" >> $GITHUB_ENV
         fi
 
-    - name: Get Last Successful Version
-      id: get-last-version
-      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
-      shell: bash
-      run: |
-        set -e
-        
-        echo "🔍 Getting last successful version for potential rollback..."
-        
-        # Check if auto-rollback is enabled
-        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
-        AUTO_ROLLBACK_ENABLED=$(yq eval '.deployment.auto_rollback.enabled // false' "$CONFIG_FILE")
-        
-        if [[ "$AUTO_ROLLBACK_ENABLED" == "false" ]]; then
-          echo "Auto-rollback is disabled, skipping last version lookup"
-          echo "last-version=" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        
-        echo "Auto-rollback is enabled, looking up last successful version..."
-        
-        # Get current Lambda function configuration to find last successful version
-        LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
-        
-        # Try to get the current version from Lambda function tags
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-        FUNCTION_ARN="arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION"
-        
-        # Get current tags to find last successful deployment
-        LAST_VERSION=""
-        if aws lambda list-tags --resource "$FUNCTION_ARN" > /tmp/lambda-tags.json 2>/dev/null; then
-          LAST_VERSION=$(jq -r '.Tags.Version // empty' /tmp/lambda-tags.json 2>/dev/null || echo "")
-        fi
-        
-        if [[ -n "$LAST_VERSION" ]] && [[ "$LAST_VERSION" != "null" ]]; then
-          echo "Found last successful version: $LAST_VERSION"
-          echo "last-version=$LAST_VERSION" >> $GITHUB_OUTPUT
-        else
-          echo "No previous successful version found"
-          echo "last-version=" >> $GITHUB_OUTPUT
-        fi
-
     - name: Install yq for YAML parsing
       shell: bash
       run: |
@@ -214,6 +172,52 @@ runs:
         echo "✅ Configuration loaded successfully:"
         echo "  - Project: $PROJECT_NAME"
         echo "  - Runtime: $PROJECT_RUNTIME"
+
+    - name: Get Last Successful Version
+      id: get-last-version
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        set -e
+        
+        echo "🔍 Getting last successful version for potential rollback..."
+        
+        # Get config file path
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        
+        echo "Using config file: $CONFIG_FILE"
+        
+        # Check if auto-rollback is enabled
+        AUTO_ROLLBACK_ENABLED=$(yq eval '.deployment.auto_rollback.enabled // false' "$CONFIG_FILE")
+        
+        if [[ "$AUTO_ROLLBACK_ENABLED" == "false" ]]; then
+          echo "Auto-rollback is disabled, skipping last version lookup"
+          echo "last-version=" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "Auto-rollback is enabled, looking up last successful version..."
+        
+        # Get current Lambda function configuration to find last successful version
+        LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
+        
+        # Try to get the current version from Lambda function tags
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        FUNCTION_ARN="arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION"
+        
+        # Get current tags to find last successful deployment
+        LAST_VERSION=""
+        if aws lambda list-tags --resource "$FUNCTION_ARN" > /tmp/lambda-tags.json 2>/dev/null; then
+          LAST_VERSION=$(jq -r '.Tags.Version // empty' /tmp/lambda-tags.json 2>/dev/null || echo "")
+        fi
+        
+        if [[ -n "$LAST_VERSION" ]] && [[ "$LAST_VERSION" != "null" ]]; then
+          echo "Found last successful version: $LAST_VERSION"
+          echo "last-version=$LAST_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "No previous successful version found"
+          echo "last-version=" >> $GITHUB_OUTPUT
+        fi
 
     - name: Determine Environment
       id: determine-env
