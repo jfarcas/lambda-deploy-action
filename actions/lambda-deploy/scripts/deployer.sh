@@ -162,7 +162,7 @@ upload_to_s3() {
     local s3_bucket="$4"
     local lambda_function="$5"
     
-    echo "📦 Uploading package to S3..."
+    echo "📦 Uploading package to S3..." >&2
     
     # Generate environment-specific S3 key
     local timestamp
@@ -190,7 +190,7 @@ upload_to_s3() {
             ;;
     esac
     
-    echo "S3 destination: s3://$s3_bucket/$s3_key"
+    echo "S3 destination: s3://$s3_bucket/$s3_key" >&2
     
     # Prepare metadata
     local metadata
@@ -198,14 +198,14 @@ upload_to_s3() {
     
     # Upload with retry logic
     if aws_retry 3 aws s3 cp "$artifact_path" "s3://$s3_bucket/$s3_key" --metadata "$metadata"; then
-        echo "✅ Package uploaded successfully"
+        echo "✅ Package uploaded successfully" >&2
         
         # Also update the "latest" pointer for this environment
         update_latest_pointer "$artifact_path" "$s3_bucket" "$s3_key_base" "$environment" "$version"
         
         echo "$s3_key"
     else
-        echo "::error::Failed to upload package to S3"
+        echo "::error::Failed to upload package to S3" >&2
         return 1
     fi
 }
@@ -244,15 +244,15 @@ update_latest_pointer() {
     local environment="$4"
     local version="$5"
     
-    echo "🔗 Updating latest pointer for $environment environment..."
+    echo "🔗 Updating latest pointer for $environment environment..." >&2
     
     local latest_key="$s3_key_base/$environment/latest.zip"
     local latest_metadata="environment=$environment,version=$version,updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     
     if aws_retry 2 aws s3 cp "$artifact_path" "s3://$s3_bucket/$latest_key" --metadata "$latest_metadata"; then
-        echo "✅ Latest pointer updated"
+        echo "✅ Latest pointer updated" >&2
     else
-        echo "::warning::Failed to update latest pointer (non-critical)"
+        echo "::warning::Failed to update latest pointer (non-critical)" >&2
     fi
 }
 
@@ -263,13 +263,13 @@ update_lambda_function() {
     local version="$4"
     local environment="$5"
     
-    echo "🔄 Updating Lambda function code..."
+    echo "🔄 Updating Lambda function code..." >&2
     
     local retry_count=0
     local max_retries=3
     
     while [[ $retry_count -lt $max_retries ]]; do
-        echo "Attempt $((retry_count + 1))/$max_retries: Updating function code..."
+        echo "Attempt $((retry_count + 1))/$max_retries: Updating function code..." >&2
         
         # First update the function code without publishing
         if aws_retry 3 aws lambda update-function-code \
@@ -284,28 +284,28 @@ update_lambda_function() {
                 local version_description
                 version_description=$(create_version_description "$environment" "$version")
                 
-                echo "📝 Publishing Lambda version with description..."
+                echo "📝 Publishing Lambda version with description..." >&2
                 if publish_lambda_version "$lambda_function" "$version_description"; then
                     # Get the published version number
                     local lambda_version
                     lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-publish.json 2>/dev/null || /usr/bin/jq -r '.Version' /tmp/lambda-update.json)
                     
-                    echo "✅ Lambda function updated successfully"
-                    echo "  Function: $lambda_function"
-                    echo "  Version: $lambda_version"
-                    echo "  S3 Location: s3://$s3_bucket/$s3_key"
+                    echo "✅ Lambda function updated successfully" >&2
+                    echo "  Function: $lambda_function" >&2
+                    echo "  Version: $lambda_version" >&2
+                    echo "  S3 Location: s3://$s3_bucket/$s3_key" >&2
                     
                     echo "$lambda_version"
                     return 0
                 else
-                    echo "::warning::Failed to publish version, but function code was updated"
+                    echo "::warning::Failed to publish version, but function code was updated" >&2
                     local lambda_version
                     lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
                     echo "$lambda_version"
                     return 0
                 fi
             else
-                echo "::warning::Function did not become ready, but continuing..."
+                echo "::warning::Function did not become ready, but continuing..." >&2
                 local lambda_version
                 lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
                 echo "$lambda_version"
@@ -314,10 +314,10 @@ update_lambda_function() {
         else
             ((retry_count++))
             if [[ $retry_count -eq $max_retries ]]; then
-                echo "::error::Failed to update Lambda function after $max_retries attempts"
+                echo "::error::Failed to update Lambda function after $max_retries attempts" >&2
                 return 1
             fi
-            echo "Retrying in 10 seconds..."
+            echo "Retrying in 10 seconds..." >&2
             sleep 10
         fi
     done
@@ -362,25 +362,25 @@ publish_lambda_version() {
     
     while [[ $publish_attempts -lt $max_publish_attempts ]]; do
         ((publish_attempts++))
-        echo "Publishing version attempt $publish_attempts/$max_publish_attempts..."
+        echo "Publishing version attempt $publish_attempts/$max_publish_attempts..." >&2
         
         if aws_retry 2 aws lambda publish-version \
             --function-name "$lambda_function" \
             --description "$version_description" > /tmp/lambda-publish.json 2>/tmp/lambda-publish-error.log; then
             
-            echo "✅ Version published successfully"
+            echo "✅ Version published successfully" >&2
             return 0
         else
             local publish_error
             publish_error=$(cat /tmp/lambda-publish-error.log 2>/dev/null || echo "Unknown error")
-            echo "::warning::Failed to publish version (attempt $publish_attempts/$max_publish_attempts): $publish_error"
+            echo "::warning::Failed to publish version (attempt $publish_attempts/$max_publish_attempts): $publish_error" >&2
             
             if [[ $publish_attempts -eq $max_publish_attempts ]]; then
-                echo "::error::Failed to publish version after $max_publish_attempts attempts"
+                echo "::error::Failed to publish version after $max_publish_attempts attempts" >&2
                 return 1
             fi
             
-            echo "Waiting 5 seconds before retry..."
+            echo "Waiting 5 seconds before retry..." >&2
             sleep 5
         fi
     done
@@ -471,13 +471,13 @@ get_rollback_s3_key() {
     # Generate environment-specific S3 key for rollback
     case "$environment" in
         "pre"|"staging"|"test")
-            echo "$lambda_function/environments/pre/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/pre/$normalized_version.zip"
             ;;
         "prod"|"production")
-            echo "$lambda_function/environments/prod/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/prod/$normalized_version.zip"
             ;;
         *)
-            echo "$lambda_function/environments/$environment/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/$environment/$normalized_version.zip"
             ;;
     esac
 }
