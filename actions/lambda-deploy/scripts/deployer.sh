@@ -55,7 +55,10 @@ perform_normal_deployment() {
     
     # Update Lambda function
     local lambda_version
-    lambda_version=$(update_lambda_function "$s3_bucket" "$s3_key" "$lambda_function" "$version" "$environment")
+    if ! lambda_version=$(update_lambda_function "$s3_bucket" "$s3_key" "$lambda_function" "$version" "$environment"); then
+        echo "::error::Lambda function update failed, aborting deployment"
+        return 1
+    fi
     
     # Tag the deployment
     tag_lambda_deployment "$lambda_function" "$version" "$environment" "deploy" "$aws_region"
@@ -92,7 +95,10 @@ perform_rollback_deployment() {
     
     # Update Lambda function with rollback artifact
     local lambda_version
-    lambda_version=$(update_lambda_function "$s3_bucket" "$s3_key" "$lambda_function" "$rollback_version" "$environment")
+    if ! lambda_version=$(update_lambda_function "$s3_bucket" "$s3_key" "$lambda_function" "$rollback_version" "$environment"); then
+        echo "::error::Lambda function rollback failed, aborting rollback"
+        return 1
+    fi
     
     # Tag the rollback
     tag_lambda_deployment "$lambda_function" "$rollback_version" "$environment" "rollback" "$aws_region"
@@ -167,20 +173,20 @@ upload_to_s3() {
     # Environment-specific S3 paths with proper isolation
     case "$environment" in
         "dev"|"development")
-            # Dev: Use timestamp-based paths for rapid iteration
-            s3_key="$s3_key_base/environments/dev/deployments/$timestamp/lambda.zip"
+            # Dev: Use shorter timestamp-based paths for rapid iteration
+            s3_key="$s3_key_base/dev/$timestamp.zip"
             ;;
         "pre"|"staging"|"test")
-            # Pre: Environment-specific versioned paths
-            s3_key="$s3_key_base/environments/pre/versions/$version/$lambda_function-$version.zip"
+            # Pre: Shorter environment-specific versioned paths
+            s3_key="$s3_key_base/pre/$version.zip"
             ;;
         "prod"|"production")
-            # Prod: Environment-specific versioned paths with strict metadata
-            s3_key="$s3_key_base/environments/prod/versions/$version/$lambda_function-$version.zip"
+            # Prod: Shorter environment-specific versioned paths
+            s3_key="$s3_key_base/prod/$version.zip"
             ;;
         *)
-            # Unknown environment: Use environment-specific path
-            s3_key="$s3_key_base/environments/$environment/versions/$version/$lambda_function-$version.zip"
+            # Unknown environment: Use shorter environment-specific path
+            s3_key="$s3_key_base/$environment/$version.zip"
             ;;
     esac
     
@@ -240,7 +246,7 @@ update_latest_pointer() {
     
     echo "🔗 Updating latest pointer for $environment environment..."
     
-    local latest_key="$s3_key_base/environments/$environment/latest/lambda.zip"
+    local latest_key="$s3_key_base/$environment/latest.zip"
     local latest_metadata="environment=$environment,version=$version,updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     
     if aws_retry 2 aws s3 cp "$artifact_path" "s3://$s3_bucket/$latest_key" --metadata "$latest_metadata"; then
@@ -282,7 +288,7 @@ update_lambda_function() {
                 if publish_lambda_version "$lambda_function" "$version_description"; then
                     # Get the published version number
                     local lambda_version
-                    lambda_version=$(jq -r '.Version' /tmp/lambda-publish.json 2>/dev/null || jq -r '.Version' /tmp/lambda-update.json)
+                    lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-publish.json 2>/dev/null || /usr/bin/jq -r '.Version' /tmp/lambda-update.json)
                     
                     echo "✅ Lambda function updated successfully"
                     echo "  Function: $lambda_function"
@@ -294,14 +300,14 @@ update_lambda_function() {
                 else
                     echo "::warning::Failed to publish version, but function code was updated"
                     local lambda_version
-                    lambda_version=$(jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
+                    lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
                     echo "$lambda_version"
                     return 0
                 fi
             else
                 echo "::warning::Function did not become ready, but continuing..."
                 local lambda_version
-                lambda_version=$(jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
+                lambda_version=$(/usr/bin/jq -r '.Version' /tmp/lambda-update.json 2>/dev/null || echo "\$LATEST")
                 echo "$lambda_version"
                 return 0
             fi
@@ -520,12 +526,12 @@ get_deployment_info() {
     # Get function configuration
     local function_info
     if function_info=$(aws lambda get-function --function-name "$lambda_function" 2>/dev/null); then
-        if command -v jq >/dev/null 2>&1; then
+        if command -v /usr/bin/jq >/dev/null 2>&1; then
             local state last_modified code_size runtime
-            state=$(echo "$function_info" | jq -r '.Configuration.State')
-            last_modified=$(echo "$function_info" | jq -r '.Configuration.LastModified')
-            code_size=$(echo "$function_info" | jq -r '.Configuration.CodeSize')
-            runtime=$(echo "$function_info" | jq -r '.Configuration.Runtime')
+            state=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.State')
+            last_modified=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.LastModified')
+            code_size=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.CodeSize')
+            runtime=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.Runtime')
             
             echo "  Function: $lambda_function"
             echo "  State: $state"
@@ -543,10 +549,10 @@ get_deployment_info() {
             local function_arn="arn:aws:lambda:$aws_region:$account_id:function:$lambda_function"
             local tags
             if tags=$(aws lambda list-tags --resource "$function_arn" 2>/dev/null); then
-                if command -v jq >/dev/null 2>&1; then
+                if command -v /usr/bin/jq >/dev/null 2>&1; then
                     local version environment
-                    version=$(echo "$tags" | jq -r '.Tags.Version // "unknown"')
-                    environment=$(echo "$tags" | jq -r '.Tags.Environment // "unknown"')
+                    version=$(echo "$tags" | /usr/bin/jq -r '.Tags.Version // "unknown"')
+                    environment=$(echo "$tags" | /usr/bin/jq -r '.Tags.Environment // "unknown"')
                     
                     echo "  Tagged Version: $version"
                     echo "  Tagged Environment: $environment"
