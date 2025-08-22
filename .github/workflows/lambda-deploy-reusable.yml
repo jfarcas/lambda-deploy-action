@@ -108,7 +108,7 @@ jobs:
           echo "secrets.TEAMS_WEBHOOK_URL: '${{ secrets.TEAMS_WEBHOOK_URL && 'SET' || 'NOT_SET' }}'"
 
       - name: Deploy or Rollback Lambda Function
-        uses: ./actions/lambda-deploy
+        uses: jfarcas/lambda-deploy-action/actions/lambda-deploy@main
         env:
           # Required AWS credentials
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
