@@ -1008,6 +1008,35 @@ runs:
             --s3-bucket "$S3_BUCKET" \
             --s3-key "$S3_KEY" > /tmp/lambda-update.json; then
             
+            # Wait for function to be ready before publishing version
+            echo "⏳ Waiting for Lambda function to be ready for version publishing..."
+            WAIT_COUNT=0
+            MAX_WAIT_ATTEMPTS=30  # 30 attempts * 2 seconds = 60 seconds max wait
+            
+            while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
+              FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
+              LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null || echo "Unknown")
+              
+              echo "  Function State: $FUNCTION_STATE, Last Update Status: $LAST_UPDATE_STATUS"
+              
+              if [[ "$FUNCTION_STATE" == "Active" && "$LAST_UPDATE_STATUS" == "Successful" ]]; then
+                echo "✅ Lambda function is ready for version publishing"
+                break
+              elif [[ "$LAST_UPDATE_STATUS" == "Failed" ]]; then
+                echo "::error::Lambda function update failed"
+                exit 1
+              fi
+              
+              ((WAIT_COUNT++))
+              if [[ $WAIT_COUNT -eq $MAX_WAIT_ATTEMPTS ]]; then
+                echo "::warning::Timeout waiting for Lambda function to be ready, attempting to publish anyway..."
+                break
+              fi
+              
+              echo "  Waiting... (attempt $WAIT_COUNT/$MAX_WAIT_ATTEMPTS)"
+              sleep 2
+            done
+            
             # Then publish a version with description
             echo "📝 Publishing version with description..."
             if aws lambda publish-version \
@@ -1585,6 +1614,35 @@ runs:
           --s3-bucket "$S3_BUCKET" \
           --s3-key "$S3_KEY" > /tmp/rollback-update-temp.json; then
           
+          # Wait for function to be ready before publishing rollback version
+          echo "⏳ Waiting for Lambda function to be ready for rollback version publishing..."
+          WAIT_COUNT=0
+          MAX_WAIT_ATTEMPTS=30  # 30 attempts * 2 seconds = 60 seconds max wait
+          
+          while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
+            FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
+            LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null || echo "Unknown")
+            
+            echo "  Function State: $FUNCTION_STATE, Last Update Status: $LAST_UPDATE_STATUS"
+            
+            if [[ "$FUNCTION_STATE" == "Active" && "$LAST_UPDATE_STATUS" == "Successful" ]]; then
+              echo "✅ Lambda function is ready for rollback version publishing"
+              break
+            elif [[ "$LAST_UPDATE_STATUS" == "Failed" ]]; then
+              echo "::error::Lambda function rollback update failed"
+              exit 1
+            fi
+            
+            ((WAIT_COUNT++))
+            if [[ $WAIT_COUNT -eq $MAX_WAIT_ATTEMPTS ]]; then
+              echo "::warning::Timeout waiting for Lambda function to be ready for rollback, attempting to publish anyway..."
+              break
+            fi
+            
+            echo "  Waiting... (attempt $WAIT_COUNT/$MAX_WAIT_ATTEMPTS)"
+            sleep 2
+          done
+          
           # Then publish a version with rollback description
           echo "📝 Publishing rollback version with description..."
           if aws lambda publish-version \
@@ -1610,8 +1668,20 @@ runs:
             echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
           else
             echo "::error::Failed to publish rollback version with description"
-            exit 1
+            echo "::warning::Rollback function code was updated but version publishing failed"
+            echo "::warning::Function should still be rolled back, but without version description"
+            
+            # Try to get basic info from the temp update
+            if [[ -f "/tmp/rollback-update-temp.json" ]]; then
+              LAMBDA_SIZE=$(jq -r '.CodeSize' /tmp/rollback-update-temp.json 2>/dev/null || echo "unknown")
+              echo "  Rolled back to Version: $NORMALIZED_VERSION"
+              echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE 2>/dev/null || echo $LAMBDA_SIZE)"
+            fi
           fi
+        else
+          echo "::error::Failed to update Lambda function code for rollback"
+          exit 1
+        fi
           echo "  S3 Location: s3://$S3_BUCKET/$S3_KEY"
           
           # Set outputs
