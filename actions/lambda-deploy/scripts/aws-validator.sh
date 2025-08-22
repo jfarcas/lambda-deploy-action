@@ -32,16 +32,16 @@ test_aws_credentials() {
     echo "✅ AWS credentials are valid"
     
     # Extract and display account information
-    if command -v jq >/dev/null 2>&1; then
+    if command -v /usr/bin/jq >/dev/null 2>&1; then
         # Debug: show raw caller identity
         echo "Raw caller identity response:"
         echo "$caller_identity"
         
         # Validate JSON format before parsing
-        if echo "$caller_identity" | jq empty 2>/dev/null; then
+        if echo "$caller_identity" | /usr/bin/jq empty 2>/dev/null; then
             local account_id user_arn
-            account_id=$(echo "$caller_identity" | jq -r '.Account // "unknown"')
-            user_arn=$(echo "$caller_identity" | jq -r '.Arn // "unknown"')
+            account_id=$(echo "$caller_identity" | /usr/bin/jq -r '.Account // "unknown"')
+            user_arn=$(echo "$caller_identity" | /usr/bin/jq -r '.Arn // "unknown"')
             
             echo "  Account ID: $account_id"
             echo "  User/Role: $user_arn"
@@ -137,11 +137,11 @@ validate_lambda_function() {
     echo "✅ Lambda function is accessible"
     
     # Extract function information
-    if command -v jq >/dev/null 2>&1; then
+    if command -v /usr/bin/jq >/dev/null 2>&1; then
         local function_runtime state last_modified
-        function_runtime=$(echo "$function_info" | jq -r '.Configuration.Runtime // "unknown"')
-        state=$(echo "$function_info" | jq -r '.Configuration.State // "unknown"')
-        last_modified=$(echo "$function_info" | jq -r '.Configuration.LastModified // "unknown"')
+        function_runtime=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.Runtime // "unknown"')
+        state=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.State // "unknown"')
+        last_modified=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.LastModified // "unknown"')
         
         echo "  Runtime: $function_runtime"
         echo "  State: $state"

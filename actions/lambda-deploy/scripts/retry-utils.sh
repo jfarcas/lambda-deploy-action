@@ -16,21 +16,21 @@ retry_with_backoff() {
     local command=("$@")
     
     while (( attempt <= max_attempts )); do
-        echo "Attempt $attempt/$max_attempts: ${command[*]}"
+        echo "Attempt $attempt/$max_attempts: ${command[*]}" >&2
         
         if "${command[@]}"; then
-            echo "✅ Command succeeded on attempt $attempt"
+            echo "✅ Command succeeded on attempt $attempt" >&2
             return 0
         fi
         
         local exit_code=$?
         
         if (( attempt == max_attempts )); then
-            echo "::error::Command failed after $max_attempts attempts"
+            echo "::error::Command failed after $max_attempts attempts" >&2
             return $exit_code
         fi
         
-        echo "⚠️ Command failed (exit code: $exit_code), retrying in ${delay}s..."
+        echo "⚠️ Command failed (exit code: $exit_code), retrying in ${delay}s..." >&2
         sleep "$delay"
         
         # Exponential backoff with jitter
@@ -74,8 +74,8 @@ wait_for_lambda_ready() {
             local state
             local update_status
             
-            state=$(echo "$function_info" | jq -r '.Configuration.State // "Unknown"')
-            update_status=$(echo "$function_info" | jq -r '.Configuration.LastUpdateStatus // "Unknown"')
+            state=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.State // "Unknown"')
+            update_status=$(echo "$function_info" | /usr/bin/jq -r '.Configuration.LastUpdateStatus // "Unknown"')
             
             # Only log if state changed
             if [[ "$state" != "$last_state" || "$update_status" != "$last_update_status" ]]; then
@@ -90,7 +90,7 @@ wait_for_lambda_ready() {
             elif [[ "$update_status" == "Failed" ]]; then
                 echo "::error::Lambda function update failed"
                 echo "Function details:"
-                echo "$function_info" | jq '.Configuration'
+                echo "$function_info" | /usr/bin/jq '.Configuration'
                 return 1
             fi
         else
@@ -122,21 +122,21 @@ http_retry() {
     local delay=2
     
     while (( attempt <= max_attempts )); do
-        echo "HTTP request attempt $attempt/$max_attempts to: $url"
+        echo "HTTP request attempt $attempt/$max_attempts to: $url" >&2
         
         if curl --fail --silent --show-error --max-time 30 "${curl_args[@]}" "$url"; then
-            echo "✅ HTTP request succeeded"
+            echo "✅ HTTP request succeeded" >&2
             return 0
         fi
         
         local exit_code=$?
         
         if (( attempt == max_attempts )); then
-            echo "::error::HTTP request failed after $max_attempts attempts"
+            echo "::error::HTTP request failed after $max_attempts attempts" >&2
             return $exit_code
         fi
         
-        echo "⚠️ HTTP request failed, retrying in ${delay}s..."
+        echo "⚠️ HTTP request failed, retrying in ${delay}s..." >&2
         sleep "$delay"
         delay=$(( delay * 2 ))
         ((attempt++))
