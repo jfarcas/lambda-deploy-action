@@ -499,19 +499,25 @@ runs:
         set -e
         CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
         
-        # Get custom test command from config
+        # Get test configuration
         TEST_CMD=$(yq eval '.build.commands.test // "auto"' "$CONFIG_FILE")
         TESTS_REQUIRED=$(yq eval '.build.tests_required // true' "$CONFIG_FILE")
+        
+        echo "Test configuration:"
+        echo "  - Test command: $TEST_CMD"
+        echo "  - Tests required: $TESTS_REQUIRED"
+        
+        # If tests are not required, we can skip entirely
+        if [[ "$TESTS_REQUIRED" == "false" ]]; then
+          echo "Tests are not required by configuration, skipping test execution"
+          exit 0
+        fi
         
         if [[ "$TEST_CMD" != "auto" && "$TEST_CMD" != "null" ]]; then
           echo "Running custom test command: $TEST_CMD"
           if ! eval "$TEST_CMD"; then
-            if [[ "$TESTS_REQUIRED" == "true" ]]; then
-              echo "::error::Tests failed and are required by configuration"
-              exit 1
-            else
-              echo "::warning::Tests failed but are not required"
-            fi
+            echo "::error::Tests failed and are required by configuration"
+            exit 1
           fi
         else
           echo "Running automatic tests for $RUNTIME"
@@ -541,11 +547,9 @@ runs:
               ;;
           esac
           
-          if [[ "$TESTS_SUCCESS" == "false" && "$TESTS_REQUIRED" == "true" ]]; then
+          if [[ "$TESTS_SUCCESS" == "false" ]]; then
             echo "::error::No test command found but tests are required by configuration"
             exit 1
-          elif [[ "$TESTS_SUCCESS" == "false" ]]; then
-            echo "No test script found, skipping..."
           fi
         fi
 
