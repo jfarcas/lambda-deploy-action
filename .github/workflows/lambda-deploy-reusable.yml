@@ -47,97 +47,125 @@ on:
         required: false
         type: boolean
         default: false
-      action-ref:
-        description: 'Reference to the lambda-deploy action (e.g., YourOrg/devops-actions/.github/actions/lambda-deploy@v1.0.0)'
+      rollback-to-version:
+        description: 'Version to rollback to (leave empty for normal deployment)'
         required: false
         type: string
-        default: 'main'
-    outputs:
-      deployed-version:
-        description: 'Version that was deployed'
-        value: ${{ jobs.deploy.outputs.deployed-version }}
-      deployment-environment:
-        description: 'Environment where deployment occurred'
-        value: ${{ jobs.deploy.outputs.deployment-environment }}
+      debug:
+        description: 'Enable debug output'
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: 'AWS Access Key ID'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'AWS Secret Access Key'
+        required: true
+      AWS_ROLE_ARN:
+        description: 'AWS Role ARN (optional)'
+        required: false
+      S3_BUCKET_NAME:
+        description: 'S3 bucket name for deployment artifacts'
+        required: true
+      LAMBDA_FUNCTION_NAME:
+        description: 'Lambda function name'
+        required: true
+      AWS_REGION:
+        description: 'AWS region'
+        required: true
+      TEAMS_WEBHOOK_URL:
+        description: 'Teams webhook URL for notifications (optional)'
+        required: false
 
 jobs:
   deploy:
-    name: Deploy Lambda Function
     runs-on: ubuntu-latest
-    outputs:
-      deployed-version: ${{ steps.deploy-lambda.outputs.deployed-version }}
-      deployment-environment: ${{ steps.deploy-lambda.outputs.deployment-environment }}
-    
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Load Lambda Deploy Configuration
-        id: load-config
+      - name: Debug Environment Variables (if enabled)
+        if: inputs.debug == true
         run: |
-          set -e
-          CONFIG_FILE="${{ inputs.config-file }}"
-          
-          if [[ ! -f "$CONFIG_FILE" ]]; then
-            echo "::error::Configuration file $CONFIG_FILE not found"
-            exit 1
-          fi
-          
-          # Parse configuration and set environment variables
-          # This is a simplified version - real implementation would use yq
-          
-          # Set default AWS region
-          echo "AWS_REGION=eu-west-1" >> $GITHUB_ENV
-          
-          # Determine auth type based on environment
-          ENV="${{ inputs.environment }}"
-          if [[ "$ENV" == "auto" ]]; then
-            # Auto-detect environment
-            BRANCH="${{ github.ref_name }}"
-            if [[ "$BRANCH" =~ ^feature/MMDSQ ]] || [[ "$BRANCH" == "main" ]]; then
-              ENV="dev"
-            elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              ENV="pre"
-            fi
-          fi
-          
-          # Set auth type and other env vars based on environment
-          case "$ENV" in
-            "dev")
-              echo "AWS_AUTH_TYPE=access_key" >> $GITHUB_ENV
-              echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_NAME }}" >> $GITHUB_ENV
-              echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME }}" >> $GITHUB_ENV
-              ;;
-            "pre"|"prod")
-              echo "AWS_AUTH_TYPE=oidc" >> $GITHUB_ENV
-              echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_NAME }}" >> $GITHUB_ENV
-              echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME }}" >> $GITHUB_ENV
-              if [[ "$ENV" == "prod" ]]; then
-                echo "TEAMS_WEBHOOK_URL=${{ secrets.TEAMS_WEBHOOK_URL }}" >> $GITHUB_ENV
-              fi
-              ;;
-          esac
+          echo "🐛 DEBUG: Reusable workflow inputs and secrets:"
+          echo "inputs.config-file: '${{ inputs.config-file }}'"
+          echo "inputs.environment: '${{ inputs.environment }}'"
+          echo "inputs.version: '${{ inputs.version }}'"
+          echo "inputs.force-deploy: '${{ inputs.force-deploy }}'"
+          echo "inputs.rollback-to-version: '${{ inputs.rollback-to-version }}'"
+          echo "inputs.debug: '${{ inputs.debug }}'"
+          echo "secrets.AWS_ACCESS_KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.AWS_SECRET_ACCESS_KEY: '${{ secrets.AWS_SECRET_ACCESS_KEY && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.AWS_ROLE_ARN: '${{ secrets.AWS_ROLE_ARN && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.S3_BUCKET_NAME: '${{ secrets.S3_BUCKET_NAME && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.LAMBDA_FUNCTION_NAME: '${{ secrets.LAMBDA_FUNCTION_NAME && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.AWS_REGION: '${{ secrets.AWS_REGION && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.TEAMS_WEBHOOK_URL: '${{ secrets.TEAMS_WEBHOOK_URL && 'SET' || 'NOT_SET' }}'"
 
-      - name: Deploy Lambda using Generic Action
-        id: deploy-lambda
-        uses: ${{ inputs.action-ref || format('{0}/.github/actions/lambda-deploy@{1}', github.repository, github.ref) }}
+      - name: Deploy or Rollback Lambda Function
+        uses: ./actions/lambda-deploy
+        env:
+          # Required AWS credentials
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          
+          # Required repository variables (passed as secrets)
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          
+          # Optional: Teams webhook for notifications
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         with:
           config-file: ${{ inputs.config-file }}
           environment: ${{ inputs.environment }}
           version: ${{ inputs.version }}
           force-deploy: ${{ inputs.force-deploy }}
+          rollback-to-version: ${{ inputs.rollback-to-version }}
+          debug: ${{ inputs.debug }}
 
       - name: Deployment Summary
+        if: always()
         run: |
-          VERSION="${{ steps.deploy-lambda.outputs.deployed-version }}"
-          ENV="${{ steps.deploy-lambda.outputs.deployment-environment }}"
-          
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Successfully deployed version **$VERSION** to **$ENV** environment" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Reusable Workflow Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📋 **Details:**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow:** Reusable Lambda Deploy Workflow" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deployment time:** $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config File:** ${{ inputs.config-file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "- **Custom Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ -n "${{ inputs.rollback-to-version }}" ]]; then
+            echo "- **Action:** Rollback to v${{ inputs.rollback-to-version }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Action:** Normal deployment" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ "${{ inputs.force-deploy }}" == "true" ]]; then
+            echo "- **Force Deploy:** Enabled" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Lambda deployment completed using **Reusable Workflow**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Reusable Workflow Benefits:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Simplified workflow configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Pre-configured dynamic run names" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Built-in error handling and logging" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Consistent deployment patterns" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Centralized workflow maintenance" >> $GITHUB_STEP_SUMMARY
