@@ -1,222 +1,210 @@
 # Changelog
 
-All notable changes to the Generic Lambda Deploy Action will be documented in this file.
+All notable changes to the Lambda Deploy Action will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2025-08-22
 
-### Planned Features
-- Multi-region deployment support
-- Automated rollback capabilities  
-- Integration with monitoring systems (CloudWatch, Datadog)
-- Advanced security scanning integration
-- Performance optimization metrics
-- Blue/green deployment strategies
+### 🚀 Major Features Added
 
----
+#### Consumer-Driven Quality Gates
+- **BREAKING CHANGE:** Simplified lint and test logic
+- Removed auto-detection and complex conditional logic
+- Consumer specifies exact commands or omits them entirely
+- No more `tests_required` and `lint_required` flags
+- Predictable behavior: command provided = run it, command missing = skip it
+
+#### Smart Version Management
+- **NEW:** Multi-source version detection with priority order
+- Support for `pyproject.toml` (modern Python standard)
+- Support for `__version__.py`, `setup.py`, `version.txt`, `VERSION`
+- Fallback to `package.json`, git tags, and commit hash
+- Semantic versioning validation with warnings
+
+#### Configurable Auto-Rollback
+- **NEW:** Optional automatic rollback on deployment failure
+- Multiple rollback strategies: `last_successful`, `specific_version`
+- Granular trigger control: deployment failure, health check failure
+- Consumer choice: enable for fast recovery or disable for manual control
+- Safe default: manual rollback only
+
+#### Enhanced Health Checks
+- **NEW:** YAML object format for test payloads (cleaner than JSON)
+- Comprehensive response validation
+- Support for error scenario testing
+- Optional execution based on configuration
+
+### 🔧 Improvements
+
+#### Build Process
+- Simplified install command handling
+- Better error messages and logging
+- Improved artifact packaging
+- Enhanced security validation
+
+#### Deployment Process
+- Fixed S3 upload logic for different environments
+- Improved Lambda function tagging
+- Better version conflict resolution
+- Enhanced retry logic
+
+#### Configuration
+- Cleaner YAML structure
+- Better validation and error messages
+- More flexible environment configuration
+- Comprehensive examples and documentation
+
+### 🐛 Bug Fixes
+
+- Fixed bash syntax error in deployment script
+- Fixed step execution order (load config before using config)
+- Fixed duplicate YAML keys in configuration examples
+- Fixed version detection fallback logic
+- Fixed S3 key generation for different environments
+
+### 📚 Documentation
+
+- **NEW:** Comprehensive implementation guide
+- **NEW:** Version management guide with best practices
+- Updated README with all new features
+- Added configuration examples for different use cases
+- Added troubleshooting guide
+- Added migration guide from v1.x
+
+### 🚨 Breaking Changes
+
+1. **Lint/Test Configuration:**
+   ```yaml
+   # Before (v1.x)
+   build:
+     commands:
+       test: "auto"
+     tests_required: true
+     lint_required: false
+
+   # After (v2.0)
+   build:
+     commands:
+       test: "python -m pytest tests/"  # Specify exact command
+       # lint: "flake8 ."               # Omit to skip
+   ```
+
+2. **Removed Configuration Options:**
+   - `tests_required` flag (no longer supported)
+   - `lint_required` flag (no longer supported)
+   - Auto-detection logic for lint/test commands
+
+3. **Version Detection Priority Changed:**
+   - New priority: pyproject.toml → __version__.py → setup.py → version.txt → VERSION → package.json → git tags → commit hash
+
+### 📋 Migration Guide
+
+1. **Update configuration files:**
+   - Remove `tests_required` and `lint_required` flags
+   - Specify exact lint/test commands or omit them
+   - Add version file (pyproject.toml recommended)
+
+2. **Update dependencies:**
+   - Install lint/test tools if using them: `pip install flake8 pytest`
+   - Consider using dev-requirements.txt
+
+3. **Test in development environment first**
 
 ## [1.0.0] - 2025-08-21
 
-### 🎉 Initial Production Release
+### 🚀 Initial Release
 
-First release of the enterprise-grade Generic Lambda Deploy Action, designed for production use across multiple Lambda repositories with comprehensive validation, security, and monitoring capabilities.
+#### Core Features
+- Multi-runtime support (Python, Node.js, Bun)
+- AWS Lambda deployment with S3 artifact storage
+- Environment-based deployment (dev, pre, prod)
+- Basic health checks
+- AWS authentication (Access Keys and OIDC)
 
-### Added
+#### Build Process
+- Automatic dependency installation
+- Basic lint and test support with auto-detection
+- Artifact packaging and upload
 
-#### **Core Deployment Features**
-- **Multi-runtime support** for Bun, Node.js, and Python with configurable versions
-- **Environment-based deployment** (dev, pre, prod) with branch-based auto-detection
-- **AWS authentication** via OIDC and Access Keys with comprehensive validation
-- **S3-based artifact storage** with environment-specific versioning strategies
-- **Lambda function deployment** with publishing and comprehensive tagging
+#### Configuration
+- YAML-based configuration
+- Environment-specific settings
+- Basic validation
 
-#### **Advanced YAML Configuration**
-- **Proper YAML parsing** using `yq` for reliable configuration processing
-- **Configuration validation** with comprehensive syntax and required field checks
-- **Flexible build commands** with automatic detection and custom command support
-- **Quality gates** for linting and testing requirements
-- **Configurable artifact paths** and build patterns
+#### Security
+- Input validation
+- Secure artifact handling
+- AWS IAM integration
 
-#### **Enterprise Security**
-- **Input validation** to prevent directory traversal and injection attacks
-- **AWS resource validation** before deployment (credentials, S3 bucket, Lambda function)
-- **Package size validation** against AWS Lambda limits with warnings
-- **Secure file handling** with configurable exclusion patterns
-- **Comprehensive audit trails** through resource tagging
+### 📚 Documentation
+- Basic README
+- Configuration examples
+- Setup instructions
 
-#### **Deployment Validation & Health Checks**
-- **Post-deployment validation** with Lambda function state verification
-- **Optional health checks** with configurable test payload invocation
-- **Function readiness verification** with timeout handling
-- **Deployment success confirmation** before proceeding to notifications
+## [Unreleased] - Future Plans
 
-#### **Version Management**
-- **Version conflict detection** with automatic S3 version checking
-- **Force deployment option** for version overrides when needed
-- **Environment-specific versioning** strategies (timestamp for dev, semver for prod)
-- **Semantic versioning support** with validation and recommendations
+### 🔮 Planned Features (v2.1.0)
 
-#### **Enhanced Error Handling**
-- **Retry logic** for AWS operations with exponential backoff (3 attempts)
-- **Detailed error messages** with actionable troubleshooting information
-- **Graceful failure handling** with proper cleanup and rollback support
-- **Comprehensive logging** with timestamps and performance metrics
+#### Multi-Region Deployment
+- Deploy to multiple AWS regions simultaneously
+- Region-specific configuration
+- Cross-region rollback support
 
-#### **Organization Agnostic Design**
-- **No hardcoded organization references** for maximum flexibility
-- **Configurable action references** allowing any organization structure
-- **Parameterized repository paths** for generic deployment workflows
-- **Template-based setup** for easy adoption across organizations
+#### Enhanced Monitoring
+- CloudWatch integration
+- Custom metrics
+- Deployment dashboards
 
-#### **Monitoring & Observability**
-- **Detailed deployment logging** with timestamps and progress indicators
-- **Package size reporting** with optimization suggestions
-- **Deployment timing metrics** for performance monitoring
-- **Comprehensive resource tagging** for audit, compliance, and tracking
+#### Advanced Security
+- Vulnerability scanning
+- Dependency audit
+- Security policy enforcement
 
-#### **Documentation & Tooling**
-- **Complete implementation guide** with step-by-step setup instructions
-- **Interactive HTML guides** for visual setup and troubleshooting
-- **Enterprise versioning strategy** documentation for multi-repository management
-- **Configuration examples** and workflow templates
-- **Troubleshooting guides** with common issues and solutions
+#### Workflow Enhancements
+- Parallel deployments
+- Blue/green deployment strategy
+- Canary deployments
 
-### Architecture
+### 🔮 Planned Features (v2.2.0)
 
-#### **Repository Structure**
-- **Composite Action** (`.github/actions/lambda-deploy/`) for flexible workflow integration
-- **Reusable Workflow** (`.github/workflows/lambda-deploy-reusable.yml`) for standardized deployments
-- **Organized documentation** in `docs/` directory with multiple formats
-- **Example templates** in `examples/` directory for quick adoption
+#### Container Support
+- Docker-based Lambda deployments
+- Container image building
+- ECR integration
 
-#### **Configuration Schema**
-```yaml
-project:
-  name: string                    # Lambda function name
-  runtime: bun|node|python        # Runtime environment
-  versions:                       # Configurable runtime versions
-    bun: string
-    node: string  
-    python: string
+#### Advanced Testing
+- Integration test support
+- Load testing integration
+- Performance benchmarking
 
-build:
-  commands:                       # Custom or automatic build commands
-    install: string|"auto"
-    lint: string|"auto"
-    test: string|"auto" 
-    build: string|"auto"
-  lint_required: boolean          # Quality gate enforcement
-  tests_required: boolean
-  artifact:
-    path: string                  # Build artifact location
-    exclude_patterns: string[]    # Files to exclude from package
-
-deployment:
-  health_check:                   # Post-deployment validation
-    test_payload: string
-
-environments:                     # Environment-specific configuration
-  dev|pre|prod:
-    trigger_branches: string[]
-    aws:
-      auth_type: "access_key"|"oidc"
-      region: string
-    deployment:
-      versioning: boolean
-      notifications: boolean
-```
-
-### Features
-
-#### **Runtime Support**
-- **Bun**: Latest version by default, configurable versions, automatic lockfile detection
-- **Node.js**: Version 18 by default, configurable versions, npm/yarn support
-- **Python**: Version 3.9 by default, configurable versions, pip requirements support
-
-#### **Build System**
-- **Automatic detection** of build tools and commands based on project structure
-- **Custom build commands** with fallback to automatic detection
-- **Quality gates** with configurable linting and testing requirements
-- **Artifact validation** with size limits and security checks
-
-#### **Deployment Pipeline**
-- **Pre-deployment validation** of AWS resources and configuration
-- **Artifact upload** to S3 with metadata and environment-specific organization
-- **Lambda function update** with retry logic and error handling
-- **Post-deployment verification** with health checks and state validation
-- **Comprehensive tagging** with deployment metadata for audit trails
-
-#### **Security Features**
-- **Input sanitization** preventing directory traversal and injection attacks
-- **AWS credential validation** with detailed error reporting
-- **Resource access verification** before deployment operations
-- **Audit logging** through comprehensive resource tagging
-- **Secure file operations** with pattern-based exclusions
-
-### Supported Platforms
-
-- **GitHub Actions**: Composite actions and reusable workflows
-- **AWS Services**: Lambda, S3, IAM, STS
-- **Runtimes**: Bun (latest), Node.js (18+), Python (3.9+)
-- **Build Tools**: npm, yarn, bun, pip
-- **Notifications**: Microsoft Teams webhooks with reliable curl-based implementation
-- **Authentication**: AWS OIDC, AWS Access Keys
-
-### Usage
-
-#### **Direct Action Usage**
-```yaml
-- name: Deploy Lambda Function
-  uses: YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0
-  with:
-    config-file: 'lambda-deploy-config.yml'
-    environment: 'auto'
-    force-deploy: false
-```
-
-#### **Reusable Workflow Usage**
-```yaml
-jobs:
-  deploy:
-    uses: YourOrg/devops-actions/.github/workflows/lambda-deploy-reusable.yml@lambda-deploy/v1.0.0
-    with:
-      config-file: 'lambda-deploy-config.yml'
-      environment: 'auto'
-    secrets: inherit
-```
+#### Enterprise Features
+- Approval workflows
+- Deployment gates
+- Compliance reporting
 
 ---
 
-## Support and Contributing
+## Version Compatibility
 
-### Getting Started
-- Review `docs/IMPLEMENTATION-GUIDE.md` for complete setup instructions
-- Check `examples/` directory for configuration templates and workflow examples
-- Visit `docs/lambda-deploy-guide-v2.html` for interactive setup guide
+| Version | Node.js | Python | Bun | GitHub Actions |
+|---------|---------|--------|-----|----------------|
+| 2.0.0   | 16+     | 3.8+   | 1.0+ | v4            |
+| 1.0.0   | 16+     | 3.8+   | 1.0+ | v3            |
 
-### Reporting Issues
-- Use GitHub Issues with detailed reproduction steps
-- Include configuration files, workflow logs, and environment details
-- Check existing issues and troubleshooting guide first
+## Support
 
-### Feature Requests
-- Submit requests with business justification and use cases
-- Consider backward compatibility and impact on existing implementations
-- Provide implementation suggestions when possible
+- **Current Version:** v2.0.0
+- **Supported Versions:** v2.0.0, v1.0.0
+- **End of Life:** v1.0.0 will be supported until v3.0.0 release
 
-### Security
-- Report security vulnerabilities through private channels
-- Follow responsible disclosure practices
-- Contact DevOps team for urgent security issues
+## Upgrade Path
 
-### Contributing
-- See `CONTRIBUTING.md` for detailed contribution guidelines
-- Follow semantic versioning for all changes
-- Update documentation and tests for new features
-- Test changes across multiple repository scenarios
+- **v1.x → v2.0:** See migration guide above
+- **v2.0 → v2.1:** Will be backward compatible
+- **v2.x → v3.0:** Breaking changes expected (TBD)
 
 ---
 
-*This changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) principles.*
+*For detailed implementation instructions, see [IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)*
