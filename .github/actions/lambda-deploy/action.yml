@@ -865,13 +865,15 @@ runs:
           echo "Running health check with test payload..."
           
           # Use a completely hardcoded, clean JSON payload to avoid any parsing issues
-          echo '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' > /tmp/test-payload.json
+          # Use printf instead of echo to avoid trailing newline
+          printf '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' > /tmp/test-payload.json
           
           echo "Using hardcoded clean JSON payload:"
           cat /tmp/test-payload.json
           echo ""
           echo "Hex dump to verify no control characters:"
           hexdump -C /tmp/test-payload.json | head -3
+          echo "File size: $(wc -c < /tmp/test-payload.json) bytes"
           
           # Validate JSON syntax
           if ! jq . /tmp/test-payload.json > /dev/null 2>&1; then
@@ -883,10 +885,14 @@ runs:
           
           echo "JSON validation passed, invoking Lambda..."
           
-          # Invoke the function using the file payload
+          # Try base64 encoding the payload
+          PAYLOAD_BASE64=$(printf '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' | base64 -w 0)
+          echo "Base64 encoded payload: $PAYLOAD_BASE64"
+          
+          # Invoke the function using base64 payload
           if aws lambda invoke \
             --function-name "$LAMBDA_FUNCTION" \
-            --payload file:///tmp/test-payload.json \
+            --payload "$PAYLOAD_BASE64" \
             /tmp/test-response.json \
             --cli-read-timeout 30 \
             --cli-connect-timeout 10 > /tmp/invoke-output.json 2>&1; then
