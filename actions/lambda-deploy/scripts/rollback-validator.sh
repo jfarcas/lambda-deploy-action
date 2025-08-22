@@ -247,9 +247,13 @@ run_rollback_integration_test() {
     # Run integration test
     local response_file="/tmp/integration-test-response.json"
     
+    # Read and compact the payload content
+    local payload_content
+    payload_content=$(cat "$payload_file" | /usr/bin/jq -c .)
+    
     if aws_retry 2 aws lambda invoke \
         --function-name "$lambda_function" \
-        --payload "file://$payload_file" \
+        --payload "$payload_content" \
         "$response_file" \
         --cli-read-timeout 60 \
         --cli-connect-timeout 15 > /dev/null 2>&1; then

@@ -204,9 +204,13 @@ run_deployment_health_check() {
     local response_file="/tmp/health-check-response.json"
     local invoke_output="/tmp/health-check-invoke.json"
     
+    # Read and compact the payload content
+    local payload_content
+    payload_content=$(cat "$payload_file" | /usr/bin/jq -c .)
+    
     if aws_retry 3 aws lambda invoke \
         --function-name "$lambda_function" \
-        --payload "file://$payload_file" \
+        --payload "$payload_content" \
         "$response_file" \
         --cli-read-timeout 30 \
         --cli-connect-timeout 10 > "$invoke_output" 2>&1; then
