@@ -834,11 +834,11 @@ runs:
             # For pre/prod, use versioning
             S3_KEY="$S3_KEY_BASE/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
             aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION"
+            # Also update latest for pre/prod
+            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY_BASE/latest/lambda.zip" --metadata "environment=$ENV,version=$VERSION"
           fi
           
           echo "✅ Package uploaded to s3://$S3_BUCKET/$S3_KEY"
-        fi
-          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY_BASE/latest/lambda.zip" --metadata "environment=$ENV,version=$VERSION"
         fi
         
         # Update Lambda function with retry logic
