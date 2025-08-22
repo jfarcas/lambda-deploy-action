@@ -1,101 +1,25 @@
-# DevOps Actions - Enterprise GitHub Actions Repository
+# Lambda Deploy Action
 
-This repository contains production-ready, reusable GitHub Actions for enterprise deployment workflows. Designed for organizations managing multiple repositories with standardized CI/CD processes.
+A production-ready GitHub Action for deploying AWS Lambda functions with comprehensive environment management, version control, and enterprise-grade features.
 
-## 📁 Repository Structure
+## 🚀 Features
 
-```
-devops-actions/
-├── README.md                                    # This file
-├── CHANGELOG.md                                 # Version history and changes
-├── .github/
-│   ├── actions/
-│   │   └── lambda-deploy/
-│   │       ├── action.yml                       # Lambda Deploy Action
-│   │       └── README.md                        # Action documentation
-│   └── workflows/
-│       └── lambda-deploy-reusable.yml           # Reusable workflow
-├── docs/
-│   ├── IMPLEMENTATION-GUIDE.md                  # Detailed setup guide
-│   ├── lambda-deploy-guide-v2.html              # Interactive setup guide
-│   └── github-actions-versioning-guide-v2.html # Versioning strategy
-└── examples/
-    ├── lambda-deploy-config-simple.yml         # Simple configuration template
-    ├── lambda-deploy-config-advanced.yml       # Advanced configuration template
-    ├── repository-workflow.yml                 # Repository workflow template
-    ├── action-workflow.yml                     # Direct action usage example
-    └── simple-action-workflow.yml              # Minimal action example
-```
+- **Multi-Environment Support** - Deploy to dev, staging, and production with environment-specific configurations
+- **Smart Version Management** - Automatic version detection from multiple sources with conflict prevention
+- **Environment Isolation** - Complete S3 and deployment isolation between environments
+- **Intelligent Rollback** - Automatic and manual rollback capabilities with environment-specific artifact management
+- **Multi-Runtime Support** - Python, Node.js, and Bun with configurable versions
+- **Health Checks** - Post-deployment validation with customizable test payloads
+- **Rich Deployment Context** - Environment-specific Lambda version descriptions and aliases
+- **Enterprise Security** - Comprehensive input validation and audit trails
 
-## 🎯 Purpose
+## 📋 Quick Start
 
-This repository serves as the central hub for reusable GitHub Actions and workflows across your organization. It provides:
+### 1. Repository Setup
 
-- **Standardized deployment processes** across all repositories
-- **Enterprise-grade security** and validation
-- **Centralized version management** for all actions
-- **Comprehensive documentation** and examples
-- **Organization-specific customization** capabilities
+Create a configuration file in your repository:
 
-## 🚀 Available Actions
-
-### Lambda Deploy Action v2.0.0
-
-Production-ready Lambda function deployment with comprehensive validation, security, and enterprise features.
-
-**Location:** `.github/actions/lambda-deploy/`
-
-**Key Features:**
-- **Multi-runtime support** (Bun, Node.js, Python) with configurable versions
-- **Smart version detection** from multiple sources (pyproject.toml, package.json, version files)
-- **Consumer-driven lint/test** - Simple, predictable behavior
-- **Configurable auto-rollback** - Optional automatic recovery from deployment failures
-- **Enterprise-grade security** with comprehensive input validation
-- **Health checks** with customizable validation
-- **Version conflict resolution** with force deployment options
-- **Quality gates** with consumer-controlled testing requirements
-- **Comprehensive monitoring** with detailed logging and metrics
-
-## 🚀 Quick Start
-
-### For Repository Administrators
-
-1. **Clone this repository** as your organization's central DevOps actions repository
-2. **Customize organization references** in all files (replace `YourOrg` with your organization name)
-3. **Tag and release** your first version:
-   ```bash
-   git tag lambda-deploy/v2.0.0
-   git push origin main --tags
-   ```
-
-### For Development Teams
-
-1. **Copy configuration template:**
-   ```bash
-   cp examples/lambda-deploy-config-simple.yml your-repo/lambda-deploy-config.yml
-   ```
-
-2. **Add workflow to your repository:**
-   ```bash
-   cp examples/repository-workflow.yml your-repo/.github/workflows/lambda-deploy.yml
-   ```
-
-3. **Update action reference** in your workflow:
-   ```yaml
-   action-ref: "YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v2.0.0"
-   ```
-
-4. **Configure secrets and variables** in your repository settings
-
-### For Detailed Setup
-
-- See [`docs/IMPLEMENTATION-GUIDE.md`](docs/IMPLEMENTATION-GUIDE.md) for complete instructions
-- Check [`docs/lambda-deploy-guide-v2.html`](docs/lambda-deploy-guide-v2.html) for interactive guide
-- Review [`CHANGELOG.md`](CHANGELOG.md) for version history and migration notes
-
-## 📋 Configuration Examples
-
-### Simple Configuration (Recommended for Hello World)
+**`lambda-deploy-config.yml`**
 ```yaml
 project:
   name: "my-lambda-function"
@@ -106,13 +30,20 @@ project:
 build:
   commands:
     install: "pip install -r requirements.txt"
-    # lint: "flake8 ."                    # Optional: Uncomment if needed
-    # test: "python -m pytest tests/"    # Optional: Uncomment if needed
     build: "auto"
 
 environments:
   dev:
     trigger_branches: ["main", "feature/**"]
+    aws:
+      auth_type: "access_key"
+  
+  pre:
+    trigger_branches: ["main"]
+    aws:
+      auth_type: "access_key"
+  
+  prod:
     aws:
       auth_type: "access_key"
 
@@ -124,123 +55,307 @@ deployment:
       source: "deployment-validation"
     expected_status_code: 200
     expected_response_contains: "success"
-  
-  auto_rollback:
-    enabled: false  # Manual rollback only (safe default)
 ```
 
-### Advanced Configuration (Enterprise Features)
+### 2. Workflow Setup
+
+Create `.github/workflows/lambda-deploy.yml`:
+
+```yaml
+name: Deploy Lambda Function
+
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch' && 
+    format('🚀 Manual Deploy | {0} → {1}', github.actor, inputs.environment) ||
+    format('📦 Auto Deploy | {0}', github.ref_name)
+  }}
+
+on:
+  push:
+    branches: [main, feature/**]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, pre, prod]
+        default: 'dev'
+      force-deploy:
+        description: 'Force deployment (bypass version conflicts)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy Lambda
+        uses: YourOrg/lambda-deploy-action/.github/actions/lambda-deploy@v1.0.0
+        with:
+          config-file: "lambda-deploy-config.yml"
+          environment: ${{ inputs.environment || 'auto' }}
+          force-deploy: ${{ inputs.force-deploy || false }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+```
+
+### 3. Repository Configuration
+
+Set up these repository secrets and variables:
+
+**Secrets:**
+- `AWS_ACCESS_KEY_ID` - AWS access key
+- `AWS_SECRET_ACCESS_KEY` - AWS secret key
+
+**Variables:**
+- `S3_BUCKET_NAME` - S3 bucket for deployment artifacts
+- `LAMBDA_FUNCTION_NAME` - Lambda function name
+- `AWS_REGION` - AWS region (e.g., us-east-1)
+
+## 🏗️ Architecture
+
+### Environment Isolation
+
+Each environment maintains complete isolation:
+
+```
+S3 Structure:
+s3://your-bucket/your-function/
+├── environments/
+│   ├── dev/
+│   │   ├── deployments/timestamp/lambda.zip
+│   │   └── latest/lambda.zip
+│   ├── pre/
+│   │   ├── versions/1.0.0/function-1.0.0.zip
+│   │   └── latest/lambda.zip
+│   └── prod/
+│       ├── versions/1.0.0/function-1.0.0.zip
+│       └── latest/lambda.zip
+```
+
+### Version Management
+
+- **Dev:** Timestamp-based deployments for rapid iteration
+- **Pre:** Version-based with overwrite warnings for staging flexibility
+- **Prod:** Strict version checking with conflict prevention
+
+### Lambda Versions
+
+Each deployment creates descriptive Lambda versions:
+
+```
+Lambda Versions:
+├── Version 5: "DEV: v1.0.1 | abc123 | 2025-08-22 12:46:06 UTC"
+├── Version 4: "PRE: v1.0.0 | main | def456 | 2025-08-22 11:00:00 UTC"
+└── Version 3: "PROD: v1.0.0 | main | def456 | 2025-08-22 10:00:00 UTC"
+
+Aliases:
+├── dev-current → Version 5
+├── pre-current → Version 4
+└── prod-current → Version 3
+```
+
+## 📖 Configuration Reference
+
+### Project Configuration
+
 ```yaml
 project:
-  name: "my-lambda-function"
-  runtime: "python"
+  name: "function-name"           # Lambda function identifier
+  runtime: "python|nodejs|bun"   # Runtime environment
   versions:
-    python: "3.9"
+    python: "3.9|3.10|3.11"     # Python version
+    nodejs: "18|20"              # Node.js version
+    bun: "latest|1.0"            # Bun version
+```
 
+### Build Configuration
+
+```yaml
 build:
   commands:
-    install: "pip install -r requirements.txt -r dev-requirements.txt"
-    lint: "flake8 . --max-line-length=88"
-    test: "python -m pytest tests/ -v"
-    build: "auto"
+    install: "pip install -r requirements.txt"  # Install dependencies
+    lint: "flake8 ."                            # Optional: Lint command
+    test: "python -m pytest tests/"             # Optional: Test command
+    build: "auto|custom-command"                # Build command
+```
 
+### Environment Configuration
+
+```yaml
 environments:
   dev:
-    trigger_branches: ["main", "feature/**"]
+    trigger_branches: ["main", "feature/**"]    # Auto-deploy branches
+    aws:
+      auth_type: "access_key|oidc"              # Authentication method
+  
+  pre:
+    trigger_branches: ["main"]                  # Staging branches
     aws:
       auth_type: "access_key"
+    deployment:
+      versioning: true                          # Enable version tracking
   
   prod:
     aws:
-      auth_type: "oidc"
+      auth_type: "oidc"                         # Production auth
     deployment:
       versioning: true
-      notifications: true
-
-deployment:
-  health_check:
-    enabled: true
-    test_payload_object:
-      name: "HealthCheck"
-      source: "deployment-validation"
-    expected_status_code: 200
-    expected_response_contains: "success"
-  
-  auto_rollback:
-    enabled: true                        # Automatic rollback enabled
-    strategy: "last_successful"
-    triggers:
-      on_deployment_failure: true
-      on_health_check_failure: false
-    behavior:
-      max_attempts: 1
-      validate_rollback: true
-      fail_on_rollback_failure: true
+      notifications: true                       # Enable notifications
 ```
 
-## ✨ Key Features
+### Deployment Configuration
 
-### 🔧 Smart Version Management
-- **Multiple sources supported:** pyproject.toml, package.json, version.txt, VERSION, __version__.py, setup.py
-- **Semantic versioning validation** with warnings for non-standard formats
-- **Automatic fallbacks** from preferred to git tags to commit hash
-- **Priority-based detection** for consistent behavior
+```yaml
+deployment:
+  health_check:
+    enabled: true                               # Enable health checks
+    test_payload_object:                        # Test payload
+      name: "Test"
+      source: "validation"
+    expected_status_code: 200                   # Expected HTTP status
+    expected_response_contains: "success"       # Expected response content
+  
+  auto_rollback:
+    enabled: false                              # Auto-rollback (optional)
+    strategy: "last_successful"                 # Rollback strategy
+    triggers:
+      on_deployment_failure: true              # Rollback triggers
+      on_health_check_failure: false
+```
 
-### 🛡️ Consumer-Driven Quality Gates
-- **Simple approach:** Specify exact commands or omit to skip
-- **No auto-detection:** Predictable, explicit behavior
-- **Lint command:** Optional, warns on failure but continues deployment
-- **Test command:** Optional, fails deployment on failure
-- **Full consumer control** over what runs and when
+## 🔧 Advanced Features
 
-### 🔄 Configurable Auto-Rollback
-- **Consumer choice:** Enable/disable automatic rollback
-- **Multiple strategies:** last_successful, specific_version
-- **Granular triggers:** deployment_failure, health_check_failure, validation_failure
-- **Safe default:** Manual rollback only
-- **Enterprise option:** Automatic recovery for faster incident response
+### Manual Rollback
 
-### 🏥 Advanced Health Checks
-- **Customizable payloads:** YAML objects or JSON strings
-- **Response validation:** Status codes, content matching, error messages
-- **Post-deployment verification** with comprehensive logging
-- **Optional execution** based on configuration
+```yaml
+# In your workflow
+- name: Rollback Lambda
+  uses: YourOrg/lambda-deploy-action/.github/actions/lambda-deploy@v1.0.0
+  with:
+    config-file: "lambda-deploy-config.yml"
+    environment: "prod"
+    rollback-to-version: "1.0.0"
+```
 
-### 🔐 Enterprise Security
-- **Input validation** with comprehensive checks
-- **AWS authentication:** OIDC and Access Keys support
-- **Secure artifact handling** with path validation
-- **Audit trails** with comprehensive tagging and logging
+### Force Deployment
 
-### 📊 Multi-Runtime Support
-- **Bun:** Latest or specific versions with bun install/test/build
-- **Node.js:** Configurable versions with npm/yarn support
-- **Python:** Version management with pip/poetry support
-- **Extensible architecture** for additional runtimes
+```yaml
+# Bypass version conflicts
+- name: Force Deploy
+  uses: YourOrg/lambda-deploy-action/.github/actions/lambda-deploy@v1.0.0
+  with:
+    force-deploy: true
+```
 
-## 📚 Documentation
+### Custom Version
 
-| Document | Description | When to Use |
-|----------|-------------|-------------|
-| `docs/IMPLEMENTATION-GUIDE.md` | Complete setup and configuration guide | First-time implementation |
-| `CHANGELOG.md` | Version history and release notes | Understanding releases and updates |
-| `docs/lambda-deploy-guide-v2.html` | Interactive enterprise setup guide | Visual setup and troubleshooting |
-| `docs/github-actions-versioning-guide-v2.html` | Enterprise versioning strategy | Managing versions across organization |
-| `examples/lambda-deploy-config-simple.yml` | Simple configuration reference | Quick start for basic projects |
-| `examples/lambda-deploy-config-advanced.yml` | Advanced configuration reference | Enterprise features and complex setups |
-| `examples/action-workflow.yml` | Direct action usage with full options | Using action directly instead of reusable workflow |
+```yaml
+# Override version detection
+- name: Deploy Custom Version
+  uses: YourOrg/lambda-deploy-action/.github/actions/lambda-deploy@v1.0.0
+  with:
+    version: "1.2.0-rc.1"
+```
 
-## 🔧 Requirements
+## 🔍 Version Detection
+
+The action automatically detects versions from multiple sources in priority order:
+
+1. **pyproject.toml** - `version = "1.0.0"`
+2. **package.json** - `"version": "1.0.0"`
+3. **version.txt** - `1.0.0`
+4. **VERSION** - `1.0.0`
+5. **__version__.py** - `__version__ = "1.0.0"`
+6. **setup.py** - `version="1.0.0"`
+7. **Git tags** - `v1.0.0` or `1.0.0`
+8. **Commit hash** - Fallback to short commit hash
+
+## 🛡️ Security
+
+### Input Validation
+- Comprehensive validation of all inputs
+- Path traversal prevention
+- Command injection protection
+
+### AWS Authentication
+- Support for IAM access keys
+- OIDC integration for keyless authentication
+- Least privilege principle
+
+### Audit Trail
+- Complete deployment history
+- Environment-specific tracking
+- Lambda function tagging with deployment context
+
+## 📊 Monitoring
+
+### Deployment Metrics
+- Deployment success/failure rates
+- Environment-specific statistics
+- Version deployment tracking
+
+### Health Checks
+- Post-deployment validation
+- Custom test payloads
+- Response validation
+
+### Notifications
+- Teams webhook integration
+- Deployment status updates
+- Error notifications
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**Version Conflicts:**
+```
+Error: Version 1.0.0 already exists in production
+Solution: Increment version or use force-deploy for emergencies
+```
+
+**Missing Environment Variables:**
+```
+Error: Missing required environment variables
+Solution: Set S3_BUCKET_NAME, LAMBDA_FUNCTION_NAME, AWS_REGION
+```
+
+**Health Check Failures:**
+```
+Error: Health check failed - unexpected response
+Solution: Verify test payload and expected response configuration
+```
+
+### Debug Mode
+
+Enable detailed logging:
+```yaml
+- name: Deploy with Debug
+  uses: YourOrg/lambda-deploy-action/.github/actions/lambda-deploy@v1.0.0
+  with:
+    debug: true
+```
+
+## 📋 Requirements
 
 ### AWS Resources
 - **Lambda function** (pre-created)
 - **S3 bucket** for artifact storage
-- **IAM roles/users** with required permissions
-
-### GitHub Configuration
-- **Secrets:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ROLE_ARN`, `TEAMS_WEBHOOK_URL`
-- **Variables:** `S3_BUCKET_NAME`, `LAMBDA_FUNCTION_NAME`
-- **Permissions:** `id-token: write`, `contents: read`
+- **IAM permissions** for Lambda and S3 operations
 
 ### Required IAM Permissions
 ```json
@@ -250,107 +365,44 @@ deployment:
     {
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject", "s3:PutObject", "s3:ListBucket",
-        "lambda:UpdateFunctionCode", "lambda:GetFunction", 
-        "lambda:PublishVersion", "lambda:TagResource", "lambda:ListTags"
+        "s3:GetObject",
+        "s3:PutObject", 
+        "s3:ListBucket",
+        "lambda:UpdateFunctionCode",
+        "lambda:GetFunction",
+        "lambda:PublishVersion",
+        "lambda:CreateAlias",
+        "lambda:DeleteAlias",
+        "lambda:TagResource",
+        "lambda:ListTags"
       ],
       "Resource": [
-        "arn:aws:s3:::bucket/*", 
-        "arn:aws:lambda:*:*:function:name"
+        "arn:aws:s3:::your-bucket/*",
+        "arn:aws:lambda:*:*:function:your-function"
       ]
     }
   ]
 }
 ```
 
-## 🚨 Migration Guide
+## 🤝 Contributing
 
-### From v1.x to v2.0
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
 
-**Breaking Changes:**
-1. **Lint/Test Logic:** No more auto-detection, specify exact commands or omit
-2. **Configuration:** Removed `tests_required` and `lint_required` flags
-3. **Version Detection:** New priority order with pyproject.toml support
+## 📄 License
 
-**Migration Steps:**
-```yaml
-# Before (v1.x)
-build:
-  commands:
-    test: "auto"
-  tests_required: true
-  lint_required: false
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-# After (v2.0)
-build:
-  commands:
-    test: "python -m pytest tests/"  # Specify exact command
-    # lint: "flake8 ."               # Omit or specify exact command
-```
+## 🆘 Support
 
-## 🚨 Troubleshooting
-
-### Common Issues
-
-**Version Detection:**
-- Ensure version files exist and contain valid semantic versions
-- Check priority order: pyproject.toml → __version__.py → setup.py → version.txt → VERSION → package.json → git tags → commit hash
-
-**Lint/Test Commands:**
-- Install required tools: `pip install flake8 pytest` in install command
-- Use dev-requirements.txt for development dependencies
-- Omit commands entirely to skip lint/test steps
-
-**Auto-Rollback:**
-- Requires previous successful deployment with version tags
-- Check Lambda function tags for Version information
-- Verify S3 bucket contains previous version artifacts
-
-**AWS Permissions:**
-- Verify IAM policies include all required Lambda and S3 permissions
-- Check resource ARNs match your actual resources
-- Ensure OIDC trust relationships are configured correctly
-
-### Debug Mode
-Enable detailed logging:
-```yaml
-env:
-  ACTIONS_STEP_DEBUG: true
-  ACTIONS_RUNNER_DEBUG: true
-```
-
-## 📊 Versioning & Releases
-
-This project follows [Semantic Versioning](https://semver.org/):
-- **MAJOR** version for incompatible API changes
-- **MINOR** version for new functionality in backward compatible manner
-- **PATCH** version for backward compatible bug fixes
-
-### Current Status
-- **Latest Stable:** v2.0.0 (Consumer-driven quality gates, auto-rollback, smart version detection)
-- **Previous:** v1.0.0 (Initial production release)
-- **Next Planned:** v2.1.0 (Multi-region deployment support)
-
-### Tag Format
-```bash
-lambda-deploy/v2.0.0    # Specific version
-lambda-deploy/v2        # Major version alias
-lambda-deploy/latest    # Latest stable
-```
-
-See `CHANGELOG.md` for complete version history and planned features.
+- **Documentation:** Check the [docs](docs/) directory
+- **Issues:** Open an issue for bugs or feature requests
+- **Discussions:** Use GitHub Discussions for questions
 
 ---
 
-## 📞 Support & Contributing
-
-- **Implementation questions:** See `IMPLEMENTATION-GUIDE.md`
-- **Issues & bugs:** Open issue in central DevOps repository  
-- **Feature requests:** Contact DevOps team with business justification
-- **Security issues:** Report through private channels
-
-**Enterprise Ready:** This action is designed for production use across multiple Lambda repositories with comprehensive error handling, security validation, audit capabilities, and enterprise-grade features.
-
----
-
-*For complete setup instructions and advanced configuration, see [IMPLEMENTATION-GUIDE.md](./docs/IMPLEMENTATION-GUIDE.md)*
+**Enterprise Ready:** This action is designed for production use with comprehensive error handling, security validation, audit capabilities, and enterprise-grade features.

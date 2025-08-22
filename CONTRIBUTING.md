@@ -1,188 +1,235 @@
-# Contributing to DevOps Actions
+# Contributing to Lambda Deploy Action
 
-This repository contains enterprise-grade GitHub Actions used across multiple repositories. Please follow these guidelines when contributing.
+Thank you for your interest in contributing to Lambda Deploy Action! This guide will help you get started with contributing to this project.
 
-## 🎯 Contribution Guidelines
+## 🎯 How to Contribute
 
-### Before Making Changes
+### Reporting Issues
+- Use GitHub Issues to report bugs or request features
+- Provide detailed information about your environment and use case
+- Include relevant logs and configuration examples
+- Search existing issues before creating new ones
 
-1. **Understand Impact**: Changes to this repository affect all consuming repositories
-2. **Check Dependencies**: Ensure changes don't break existing implementations
-3. **Review Documentation**: Update all relevant documentation
-4. **Test Thoroughly**: Test changes in development environments first
+### Suggesting Features
+- Open a GitHub Issue with the "enhancement" label
+- Describe the use case and expected behavior
+- Explain how it would benefit other users
+- Consider backward compatibility implications
 
-### Development Process
+### Code Contributions
+- Fork the repository and create a feature branch
+- Make your changes with appropriate tests
+- Follow the existing code style and conventions
+- Submit a pull request with a clear description
 
-1. **Create Feature Branch**: `git checkout -b feature/your-feature-name`
-2. **Make Changes**: Follow the coding standards below
-3. **Update Documentation**: Update README, action docs, and examples
-4. **Test Changes**: Validate in test repositories
-5. **Update Changelog**: Add entry to CHANGELOG.md
-6. **Submit PR**: Create pull request with detailed description
+## 🛠️ Development Setup
 
-## 📁 Repository Structure
+### Prerequisites
+- GitHub account with access to GitHub Actions
+- AWS account for testing
+- Basic knowledge of GitHub Actions and AWS Lambda
 
-When adding new actions, follow this structure:
+### Local Development
+1. Fork and clone the repository
+2. Create a test repository for validation
+3. Set up AWS resources for testing
+4. Test changes with real deployments
 
-```
-.github/actions/your-action-name/
-├── action.yml          # Action definition
-├── README.md           # Action-specific documentation
-└── scripts/            # Optional: Action scripts
-```
+### Testing
+- Test all environment types (dev, pre, prod)
+- Verify version management functionality
+- Test rollback capabilities
+- Validate health checks and error handling
 
-## 🔄 Versioning Strategy
+## 📋 Pull Request Process
 
-We follow [Semantic Versioning](https://semver.org/):
+### Before Submitting
+1. **Test thoroughly** - Ensure your changes work across different scenarios
+2. **Update documentation** - Update README, docs, and inline comments
+3. **Follow conventions** - Match existing code style and patterns
+4. **Add examples** - Include configuration examples if applicable
 
-- **MAJOR** (`X.0.0`): Breaking changes requiring migration
-- **MINOR** (`X.Y.0`): New features, backward compatible
-- **PATCH** (`X.Y.Z`): Bug fixes, security patches
+### PR Requirements
+- Clear title and description
+- Reference related issues
+- Include test results or validation steps
+- Update CHANGELOG.md if applicable
 
-### Tagging Format
+### Review Process
+1. Automated checks must pass
+2. Code review by maintainers
+3. Testing in real environments
+4. Documentation review
+5. Merge after approval
 
-```bash
-# Full semantic version
-action-name/v2.1.0
+## 🎨 Code Style Guidelines
 
-# Major version alias (for convenience)
-action-name/v2
-
-# Latest stable (automatically updated)
-action-name/latest
-```
-
-## 🧪 Testing Requirements
-
-### Before Submitting Changes
-
-1. **Lint Validation**: Ensure YAML files pass linting
-2. **Action Testing**: Test action in isolated repository
-3. **Integration Testing**: Test with existing workflows
-4. **Documentation Validation**: Ensure all links work
-5. **Security Review**: Check for secrets or security issues
-
-### Test Checklist
-
-- [ ] Action runs successfully with default parameters
-- [ ] Action handles error cases gracefully
-- [ ] All input parameters work as expected
-- [ ] Output parameters are correctly set
-- [ ] Documentation is accurate and complete
-- [ ] No hardcoded organization references
-- [ ] Secrets and sensitive data are properly handled
-
-## 📝 Coding Standards
-
-### YAML Files
-
+### YAML Configuration
 ```yaml
 # Use consistent indentation (2 spaces)
-# Add meaningful descriptions
-# Use kebab-case for input/output names
-# Include default values where appropriate
+project:
+  name: "example"
+  runtime: "python"
+  
+# Use descriptive names
+environments:
+  development:  # Not: dev
+    trigger_branches: ["main"]
+```
 
-inputs:
-  config-file:
-    description: 'Path to configuration file'
-    required: false
-    default: 'config.yml'
+### Shell Scripts
+```bash
+# Use set -e for error handling
+set -e
+
+# Use descriptive variable names
+LAMBDA_FUNCTION_NAME="my-function"
+
+# Add comments for complex logic
+# Check if version exists in S3
+if aws s3 ls "s3://$BUCKET/$KEY" > /dev/null 2>&1; then
+  echo "Version exists"
+fi
 ```
 
 ### Documentation
+- Use clear, concise language
+- Include practical examples
+- Explain the "why" not just the "what"
+- Keep documentation up to date with code changes
 
-- **Clear descriptions** for all inputs/outputs
-- **Usage examples** with real-world scenarios
-- **Prerequisites** and requirements
-- **Error handling** documentation
-- **Migration notes** for breaking changes
+## 🧪 Testing Guidelines
 
-### Security
+### Test Scenarios
+- **Environment Isolation** - Verify dev/pre/prod separation
+- **Version Management** - Test conflict detection and resolution
+- **Rollback Functionality** - Validate rollback to previous versions
+- **Health Checks** - Test various payload and response scenarios
+- **Error Handling** - Verify graceful failure and recovery
 
-- **Never hardcode secrets** or credentials
-- **Validate all inputs** to prevent injection
-- **Use least privilege** for permissions
-- **Sanitize outputs** to prevent information disclosure
-- **Review third-party actions** before using
+### Test Environments
+- Use separate AWS accounts or regions for testing
+- Test with different Lambda runtimes (Python, Node.js, Bun)
+- Validate with various repository structures
+- Test both manual and automatic deployments
 
-## 🚀 Release Process
+## 📚 Documentation Standards
 
-### For Maintainers
+### README Updates
+- Keep quick start guide current
+- Update feature lists when adding functionality
+- Maintain accurate configuration examples
+- Include troubleshooting for new features
 
-1. **Review Changes**: Ensure all changes are tested and documented
-2. **Update Version**: Update version numbers in relevant files
-3. **Update Changelog**: Add comprehensive changelog entry
-4. **Create Tag**: Create semantic version tag
-5. **Update Aliases**: Update major version and latest aliases
-6. **Communicate**: Notify teams of breaking changes
+### Code Documentation
+- Comment complex logic and algorithms
+- Explain environment-specific behavior
+- Document security considerations
+- Include examples in comments
 
-### Release Commands
+### Changelog Maintenance
+- Follow [Keep a Changelog](https://keepachangelog.com/) format
+- Categorize changes (Added, Changed, Fixed, Removed)
+- Include migration notes for breaking changes
+- Reference related issues and PRs
 
-```bash
-# Update changelog and documentation
-git add CHANGELOG.md README.md docs/
-git commit -m "docs: prepare v2.1.0 release"
+## 🔒 Security Considerations
 
-# Create and push tag
-git tag -a action-name/v2.1.0 -m "Release v2.1.0: New feature description"
-git push origin main --tags
+### Sensitive Information
+- Never commit AWS credentials or secrets
+- Use placeholder values in examples
+- Sanitize logs and error messages
+- Follow least privilege principles
 
-# Update major version alias
-git tag -f action-name/v2
-git push origin action-name/v2 --force
+### Input Validation
+- Validate all user inputs
+- Prevent path traversal attacks
+- Sanitize shell command inputs
+- Use parameterized queries where applicable
 
-# Update latest alias
-git tag -f action-name/latest  
-git push origin action-name/latest --force
-```
+### Error Handling
+- Don't expose sensitive information in errors
+- Provide helpful but secure error messages
+- Log security events appropriately
+- Fail securely by default
 
-## 🐛 Bug Reports
+## 🏷️ Issue Labels
 
-When reporting bugs:
+### Type Labels
+- `bug` - Something isn't working
+- `enhancement` - New feature or request
+- `documentation` - Improvements or additions to docs
+- `question` - Further information is requested
 
-1. **Use Issue Templates**: Fill out all required fields
-2. **Provide Context**: Include workflow files, configurations
-3. **Steps to Reproduce**: Clear, step-by-step instructions
-4. **Expected vs Actual**: What should happen vs what happened
-5. **Environment Details**: Runner OS, action version, etc.
+### Priority Labels
+- `critical` - Blocking production use
+- `high` - Important but not blocking
+- `medium` - Nice to have
+- `low` - Minor improvements
 
-## 💡 Feature Requests
+### Status Labels
+- `needs-triage` - Needs initial review
+- `in-progress` - Being worked on
+- `needs-testing` - Ready for validation
+- `ready-to-merge` - Approved and ready
 
-When requesting features:
+## 🎯 Feature Development Process
 
-1. **Business Justification**: Explain the business need
-2. **Use Cases**: Provide specific scenarios
-3. **Backward Compatibility**: Consider existing implementations
-4. **Implementation Ideas**: Suggest approach if possible
+### Planning Phase
+1. **Issue Creation** - Describe the feature and use case
+2. **Discussion** - Gather feedback from maintainers and users
+3. **Design** - Plan implementation approach and architecture
+4. **Approval** - Get maintainer approval before starting
 
-## 🔒 Security Issues
+### Implementation Phase
+1. **Branch Creation** - Create feature branch from main
+2. **Development** - Implement feature with tests
+3. **Documentation** - Update docs and examples
+4. **Testing** - Validate in multiple scenarios
 
-For security-related issues:
+### Review Phase
+1. **PR Creation** - Submit pull request with description
+2. **Code Review** - Address feedback from maintainers
+3. **Testing** - Validate in test environments
+4. **Merge** - Merge after approval and testing
 
-1. **Do NOT open public issues**
-2. **Contact maintainers privately**
-3. **Provide detailed description**
-4. **Allow time for investigation**
-5. **Follow responsible disclosure**
+## 🤝 Community Guidelines
+
+### Communication
+- Be respectful and constructive
+- Help others learn and grow
+- Share knowledge and experiences
+- Provide helpful feedback
+
+### Collaboration
+- Work together on complex features
+- Share testing resources and environments
+- Review each other's contributions
+- Mentor new contributors
 
 ## 📞 Getting Help
 
-- **Documentation**: Check README and docs/ directory
-- **Examples**: Review examples/ directory
-- **Issues**: Search existing issues first
-- **Discussions**: Use GitHub Discussions for questions
-- **Urgent Issues**: Contact DevOps team directly
+### Documentation
+- Check [docs/](docs/) for detailed guides
+- Review existing issues and discussions
+- Read configuration examples
 
-## 🏆 Recognition
+### Community Support
+- GitHub Discussions for questions
+- GitHub Issues for bugs and features
+- Code review feedback for improvements
 
-Contributors will be recognized in:
-- Release notes
-- CHANGELOG.md
-- Repository contributors list
-- Internal team communications
+### Maintainer Contact
+- Tag maintainers in issues for urgent matters
+- Use GitHub Discussions for general questions
+- Provide detailed context for faster resolution
 
-Thank you for helping improve our DevOps Actions! 🚀
+## 🎉 Recognition
 
----
+Contributors will be recognized through:
+- GitHub contributor graphs
+- Mention in release notes
+- Credit in documentation
+- Community appreciation
 
-*This document is maintained by the DevOps team and updated as processes evolve.*
+Thank you for contributing to Lambda Deploy Action! Your contributions help make AWS Lambda deployments better for everyone. 🚀
