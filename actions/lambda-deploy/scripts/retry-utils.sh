@@ -18,8 +18,11 @@ retry_with_backoff() {
     while (( attempt <= max_attempts )); do
         echo "Attempt $attempt/$max_attempts: ${command[*]}" >&2
         
+        echo "🔍 DEBUG: About to execute command: ${command[*]}" >&2
+        
         if "${command[@]}"; then
             echo "✅ Command succeeded on attempt $attempt" >&2
+            echo "🔍 DEBUG: Command completed successfully" >&2
             return 0
         fi
         

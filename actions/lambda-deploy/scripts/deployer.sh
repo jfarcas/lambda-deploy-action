@@ -51,7 +51,37 @@ perform_normal_deployment() {
     
     # Upload to S3 with environment-specific paths
     local s3_key
+    echo "🔍 DEBUG: About to call upload_to_s3..." >&2
+    echo "🔍 DEBUG: Parameters: artifact_path=$artifact_path, environment=$environment, version=$version, s3_bucket=$s3_bucket, lambda_function=$lambda_function" >&2
+    
     s3_key=$(upload_to_s3 "$artifact_path" "$environment" "$version" "$s3_bucket" "$lambda_function")
+    
+    echo "🔍 DEBUG: upload_to_s3 returned s3_key='$s3_key'" >&2
+    echo "🔍 DEBUG: s3_key length: ${#s3_key}" >&2
+    echo "🔍 DEBUG: s3_key first 100 chars: '${s3_key:0:100}'" >&2
+    
+    # Validate s3_key format
+    if [[ "$s3_key" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+        echo "🔍 DEBUG: s3_key format looks valid" >&2
+    else
+        echo "🔍 DEBUG: s3_key format is INVALID - contains unexpected characters" >&2
+        echo "🔍 DEBUG: Full s3_key content:" >&2
+        echo "$s3_key" | head -10 >&2
+        echo "🔍 DEBUG: End of s3_key content" >&2
+        echo "::error::S3 key contains invalid characters, aborting deployment" >&2
+        return 1
+    fi
+    
+    # Additional validation: check if s3_key is a single line
+    local s3_key_lines
+    s3_key_lines=$(echo "$s3_key" | wc -l)
+    if [[ $s3_key_lines -ne 1 ]]; then
+        echo "🔍 DEBUG: s3_key contains multiple lines ($s3_key_lines lines) - this is wrong!" >&2
+        echo "🔍 DEBUG: s3_key content:" >&2
+        echo "$s3_key" >&2
+        echo "::error::S3 key contains multiple lines, aborting deployment" >&2
+        return 1
+    fi
     
     # Update Lambda function
     local lambda_version
@@ -197,12 +227,16 @@ upload_to_s3() {
     metadata=$(prepare_s3_metadata "$environment" "$version")
     
     # Upload with retry logic
-    if aws_retry 3 aws s3 cp "$artifact_path" "s3://$s3_bucket/$s3_key" --metadata "$metadata"; then
+    echo "🔍 DEBUG: About to upload to S3 with aws_retry..." >&2
+    echo "🔍 DEBUG: Command will be: aws s3 cp $artifact_path s3://$s3_bucket/$s3_key --metadata $metadata --no-progress --quiet" >&2
+    
+    if aws_retry 3 aws s3 cp "$artifact_path" "s3://$s3_bucket/$s3_key" --metadata "$metadata" --no-progress --quiet >&2; then
         echo "✅ Package uploaded successfully" >&2
         
         # Also update the "latest" pointer for this environment
         update_latest_pointer "$artifact_path" "$s3_bucket" "$s3_key_base" "$environment" "$version"
         
+        echo "🔍 DEBUG: About to return s3_key='$s3_key'" >&2
         echo "$s3_key"
     else
         echo "::error::Failed to upload package to S3" >&2
@@ -249,7 +283,7 @@ update_latest_pointer() {
     local latest_key="$s3_key_base/$environment/latest.zip"
     local latest_metadata="environment=$environment,version=$version,updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     
-    if aws_retry 2 aws s3 cp "$artifact_path" "s3://$s3_bucket/$latest_key" --metadata "$latest_metadata"; then
+    if aws_retry 2 aws s3 cp "$artifact_path" "s3://$s3_bucket/$latest_key" --metadata "$latest_metadata" --no-progress --quiet >&2; then
         echo "✅ Latest pointer updated" >&2
     else
         echo "::warning::Failed to update latest pointer (non-critical)" >&2
@@ -264,6 +298,11 @@ update_lambda_function() {
     local environment="$5"
     
     echo "🔄 Updating Lambda function code..." >&2
+    echo "🔍 DEBUG: update_lambda_function received parameters:" >&2
+    echo "🔍 DEBUG: s3_bucket='$s3_bucket'" >&2
+    echo "🔍 DEBUG: s3_key='$s3_key'" >&2
+    echo "🔍 DEBUG: s3_key length: ${#s3_key}" >&2
+    echo "🔍 DEBUG: lambda_function='$lambda_function'" >&2
     
     local retry_count=0
     local max_retries=3
