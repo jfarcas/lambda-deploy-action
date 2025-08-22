@@ -247,16 +247,122 @@ runs:
       run: |
         set -e
         
+        # Check if version is provided as input
         if [[ -n "${{ inputs.version }}" ]]; then
           VERSION="${{ inputs.version }}"
-        elif [[ -f "package.json" ]]; then
-          VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "")
+          echo "Using input version: $VERSION"
+        else
+          echo "🔍 Detecting version from project files..."
+          VERSION=""
+          
+          # Try different version detection methods in order of preference
+          
+          # 1. pyproject.toml (Modern Python standard)
+          if [[ -f "pyproject.toml" ]] && command -v python3 >/dev/null 2>&1; then
+            echo "Found pyproject.toml, extracting version..."
+            # Try to extract version using Python
+            VERSION=$(python3 -c "
+import sys
+try:
+    if sys.version_info >= (3, 11):
+        import tomllib
+        with open('pyproject.toml', 'rb') as f:
+            data = tomllib.load(f)
+    else:
+        # Fallback for older Python versions
+        import re
+        with open('pyproject.toml', 'r') as f:
+            content = f.read()
+        match = re.search(r'version\s*=\s*[\"\'](.*?)[\"\']', content)
+        if match:
+            data = {'project': {'version': match.group(1)}}
+        else:
+            raise Exception('Version not found')
+    print(data['project']['version'])
+except Exception as e:
+    print('ERROR: ' + str(e))
+" 2>/dev/null | grep -v "ERROR" || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in pyproject.toml: $VERSION"
+            fi
+          fi
+          
+          # 2. __version__.py (Traditional Python)
+          if [[ -z "$VERSION" ]] && [[ -f "__version__.py" ]]; then
+            echo "Found __version__.py, extracting version..."
+            VERSION=$(python3 -c "exec(open('__version__.py').read()); print(__version__)" 2>/dev/null || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in __version__.py: $VERSION"
+            fi
+          fi
+          
+          # 3. setup.py (Traditional Python)
+          if [[ -z "$VERSION" ]] && [[ -f "setup.py" ]]; then
+            echo "Found setup.py, extracting version..."
+            VERSION=$(python3 setup.py --version 2>/dev/null || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in setup.py: $VERSION"
+            fi
+          fi
+          
+          # 4. version.txt (Simple approach)
+          if [[ -z "$VERSION" ]] && [[ -f "version.txt" ]]; then
+            echo "Found version.txt, reading version..."
+            VERSION=$(cat version.txt | tr -d '\n\r' | xargs)
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in version.txt: $VERSION"
+            fi
+          fi
+          
+          # 5. VERSION file (Alternative simple approach)
+          if [[ -z "$VERSION" ]] && [[ -f "VERSION" ]]; then
+            echo "Found VERSION file, reading version..."
+            VERSION=$(cat VERSION | tr -d '\n\r' | xargs)
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in VERSION file: $VERSION"
+            fi
+          fi
+          
+          # 6. package.json (for Node.js compatibility)
+          if [[ -z "$VERSION" ]] && [[ -f "package.json" ]]; then
+            echo "Found package.json, extracting version..."
+            VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in package.json: $VERSION"
+            fi
+          fi
+          
+          # 7. Lambda function code (inline version)
+          if [[ -z "$VERSION" ]] && [[ -f "lambda_function.py" ]]; then
+            echo "Checking lambda_function.py for inline version..."
+            VERSION=$(grep -E "^__version__\s*=\s*['\"]([^'\"]+)['\"]" lambda_function.py | sed -E "s/^__version__\s*=\s*['\"]([^'\"]+)['\"].*/\1/" || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version in lambda_function.py: $VERSION"
+            fi
+          fi
+          
+          # 8. Git tag fallback (if no other version found)
+          if [[ -z "$VERSION" ]]; then
+            echo "No version file found, trying git tags..."
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "")
+            if [[ -n "$VERSION" ]]; then
+              echo "Found version from git tag: $VERSION"
+            fi
+          fi
+          
+          # 9. Commit hash fallback (last resort)
+          if [[ -z "$VERSION" ]]; then
+            echo "No version found, using commit hash..."
+            VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            echo "::warning::No version found in any standard location, using commit SHA: $VERSION"
+            echo "::warning::Consider adding a version file (pyproject.toml, version.txt, or VERSION)"
+          fi
         fi
         
-        if [[ -z "$VERSION" ]]; then
-          # Fallback to git commit
-          VERSION="$(git rev-parse --short HEAD)"
-          echo "::warning::No version found in package.json, using commit SHA: $VERSION"
+        # Validate version format
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]] && [[ "$VERSION" != "unknown" ]] && [[ ! "$VERSION" =~ ^[a-f0-9]{7,}$ ]]; then
+          echo "::warning::Version '$VERSION' doesn't follow semantic versioning (x.y.z)"
+          echo "::warning::Consider using semantic versioning for better version management"
         fi
         
         echo "version=$VERSION" >> $GITHUB_OUTPUT
