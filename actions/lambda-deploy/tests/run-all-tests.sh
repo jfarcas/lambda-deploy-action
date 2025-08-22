@@ -1,8 +1,6 @@
 #!/bin/bash
 # run-all-tests.sh - Run all test suites
 
-set -euo pipefail
-
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -11,7 +9,6 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/test-framework.sh"
 
 # Test suites to run
 TEST_SUITES=(
@@ -36,7 +33,8 @@ for test_suite in "${TEST_SUITES[@]}"; do
         
         echo -e "${YELLOW}Running $(basename "$test_suite")...${NC}"
         
-        if run_test_suite "$test_suite"; then
+        # Execute the test suite directly (they have their own main functions)
+        if "$test_suite"; then
             echo -e "${GREEN}✅ $(basename "$test_suite") PASSED${NC}"
             ((PASSED_SUITES++))
         else
