@@ -33,16 +33,28 @@ test_aws_credentials() {
     
     # Extract and display account information
     if command -v jq >/dev/null 2>&1; then
-        local account_id user_arn
-        account_id=$(echo "$caller_identity" | jq -r '.Account')
-        user_arn=$(echo "$caller_identity" | jq -r '.Arn')
+        # Debug: show raw caller identity
+        echo "Raw caller identity response:"
+        echo "$caller_identity"
         
-        echo "  Account ID: $account_id"
-        echo "  User/Role: $user_arn"
-        
-        # Export account ID for use by other scripts
-        echo "AWS_ACCOUNT_ID=$account_id" >> "$GITHUB_ENV"
-        export AWS_ACCOUNT_ID="$account_id"
+        # Validate JSON format before parsing
+        if echo "$caller_identity" | jq empty 2>/dev/null; then
+            local account_id user_arn
+            account_id=$(echo "$caller_identity" | jq -r '.Account // "unknown"')
+            user_arn=$(echo "$caller_identity" | jq -r '.Arn // "unknown"')
+            
+            echo "  Account ID: $account_id"
+            echo "  User/Role: $user_arn"
+            
+            # Export account ID for use by other scripts (only if valid)
+            if [[ "$account_id" != "unknown" && "$account_id" != "null" ]]; then
+                echo "AWS_ACCOUNT_ID=$account_id" >> "$GITHUB_ENV"
+                export AWS_ACCOUNT_ID="$account_id"
+            fi
+        else
+            echo "::warning::Invalid JSON response from AWS STS, cannot parse account details"
+            echo "::warning::Raw response: $caller_identity"
+        fi
     fi
 }
 
