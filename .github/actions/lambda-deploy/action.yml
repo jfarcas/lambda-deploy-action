@@ -865,9 +865,7 @@ runs:
           echo "Running health check with test payload..."
           
           # Use a completely hardcoded, clean JSON payload to avoid any parsing issues
-          cat > /tmp/test-payload.json << 'EOF'
-{"name":"Test","source":"deployment","timestamp":"2025-08-22"}
-EOF
+          echo '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' > /tmp/test-payload.json
           
           echo "Using hardcoded clean JSON payload:"
           cat /tmp/test-payload.json
