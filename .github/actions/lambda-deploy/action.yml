@@ -40,6 +40,16 @@ runs:
       run: |
         echo "🔍 Validating required environment variables..."
         
+        # Debug: Show what environment variables we actually received
+        echo "🐛 DEBUG: Environment variables received by composite action:"
+        echo "S3_BUCKET_NAME: '${S3_BUCKET_NAME:-NOT_SET}'"
+        echo "LAMBDA_FUNCTION_NAME: '${LAMBDA_FUNCTION_NAME:-NOT_SET}'"
+        echo "AWS_REGION: '${AWS_REGION:-NOT_SET}'"
+        echo "AWS_ACCESS_KEY_ID: '${AWS_ACCESS_KEY_ID:+SET}'"
+        echo "AWS_SECRET_ACCESS_KEY: '${AWS_SECRET_ACCESS_KEY:+SET}'"
+        echo "AWS_ROLE_ARN: '${AWS_ROLE_ARN:+SET}'"
+        echo "TEAMS_WEBHOOK_URL: '${TEAMS_WEBHOOK_URL:+SET}'"
+        
         # Check required environment variables
         MISSING_VARS=()
         
@@ -56,6 +66,7 @@ runs:
         if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
           echo "::error::Missing required environment variables: ${MISSING_VARS[*]}"
           echo "::error::Please ensure these are set as repository variables or environment variables"
+          echo "::error::And that they are passed to the action via the 'env:' block in your workflow"
           exit 1
         fi
         
