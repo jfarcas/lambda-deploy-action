@@ -1,0 +1,43 @@
+# Lambda Deploy Action Configuration
+# This is the default configuration file for the Lambda Deploy Action
+# Copy this file to your repository root and customize as needed
+
+project:
+  name: "lambda-function"  # Will be overridden by LAMBDA_FUNCTION_NAME if provided
+  runtime: "python"       # Options: python, node, bun
+  source_dir: "src"       # Source code directory
+  build_dir: "dist"       # Build output directory (optional)
+
+environments:
+  dev:
+    enabled: true
+    branch_pattern: "^(dev|develop|feature/.*)$"
+  pre:
+    enabled: true
+    branch_pattern: "^(staging|pre|release/.*)$"
+  prod:
+    enabled: true
+    branch_pattern: "^(main|master|production)$"
+
+deployment:
+  timeout: 300              # Deployment timeout in seconds
+  memory_size: 128          # Lambda memory size in MB
+  timeout_lambda: 30        # Lambda function timeout in seconds
+  
+quality_checks:
+  enabled: true
+  lint: true               # Run linting
+  test: true               # Run tests
+  security: true           # Run security scanning
+
+notifications:
+  on_success: true
+  on_failure: true
+  # Configure webhook URLs via environment variables:
+  # TEAMS_WEBHOOK_URL, SLACK_WEBHOOK_URL, WEBHOOK_URL
+
+rollback:
+  enabled: true
+  auto_rollback: true      # Automatically rollback on deployment failure
+  health_check_retries: 3
+  health_check_delay: 10   # Seconds between health checks

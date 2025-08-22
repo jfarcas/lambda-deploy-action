@@ -7,12 +7,53 @@ load_configuration() {
     local config_file="${1:-lambda-deploy-config.yml}"
     
     echo "📋 Loading configuration from: $config_file"
+    echo "🔍 Current working directory: $(pwd)"
+    echo "🔍 Checking if config file exists: $config_file"
     
-    # Validate config file exists
+    # Check if config file exists, try fallback locations
     if [[ ! -f "$config_file" ]]; then
-        echo "::error::Configuration file $config_file not found"
-        echo "Please ensure the configuration file exists in your repository root"
-        exit 1
+        echo "⚠️  Config file not found at: $config_file"
+        
+        # Try some common locations
+        local common_locations=(
+            ".github/config/lambda-deploy-config.yml"
+            "config/lambda-deploy-config.yml"
+            ".config/lambda-deploy-config.yml"
+        )
+        
+        local found=false
+        for location in "${common_locations[@]}"; do
+            if [[ -f "$location" ]]; then
+                echo "✅ Found config at common location: $location"
+                config_file="$location"
+                found=true
+                break
+            fi
+        done
+        
+        if [[ "$found" == false ]]; then
+            # Try action directory as fallback
+            local action_dir="$(dirname "${BASH_SOURCE[0]}")/.."
+            local fallback_config="$action_dir/lambda-deploy-config.yml"
+            
+            if [[ -f "$fallback_config" ]]; then
+                echo "::warning::Config file not found, using default from action: $fallback_config"
+                config_file="$fallback_config"
+            else
+                echo "::error::Configuration file $config_file not found"
+                echo "Searched locations:"
+                echo "  - $config_file (provided path)"
+                for location in "${common_locations[@]}"; do
+                    echo "  - $location"
+                done
+                echo "  - $fallback_config (action default)"
+                echo ""
+                echo "Please ensure the configuration file exists or use the config-file input to specify the correct path"
+                exit 1
+            fi
+        fi
+    else
+        echo "✅ Config file found at: $config_file"
     fi
     
     # Validate YAML syntax
