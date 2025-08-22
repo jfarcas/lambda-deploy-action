@@ -1,0 +1,37 @@
+# Basic Python Lambda Configuration
+# Simple configuration for Python Lambda functions
+
+project:
+  name: "my-python-lambda"
+  runtime: "python"
+  versions:
+    python: "3.9"
+
+build:
+  commands:
+    install: "pip install -r requirements.txt"
+    build: "auto"
+
+environments:
+  dev:
+    trigger_branches: ["main", "feature/**"]
+    aws:
+      auth_type: "access_key"
+  
+  pre:
+    trigger_branches: ["main"]
+    aws:
+      auth_type: "access_key"
+  
+  prod:
+    aws:
+      auth_type: "access_key"
+
+deployment:
+  health_check:
+    enabled: true
+    test_payload_object:
+      name: "Test"
+      source: "deployment-validation"
+    expected_status_code: 200
+    expected_response_contains: "success"

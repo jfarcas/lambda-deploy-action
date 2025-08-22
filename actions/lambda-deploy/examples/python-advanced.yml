@@ -1,0 +1,65 @@
+# Advanced Python Lambda Configuration
+# Full-featured configuration with all options
+
+project:
+  name: "advanced-python-lambda"
+  runtime: "python"
+  versions:
+    python: "3.11"
+
+build:
+  commands:
+    install: "pip install -r requirements.txt"
+    lint: "flake8 . --max-line-length=88"
+    test: "python -m pytest tests/ -v"
+    build: "auto"
+
+environments:
+  dev:
+    trigger_branches: ["main", "feature/**", "develop"]
+    aws:
+      auth_type: "access_key"
+    deployment:
+      versioning: false  # Use timestamps for dev
+  
+  staging:
+    trigger_branches: ["main", "release/**"]
+    aws:
+      auth_type: "access_key"
+    deployment:
+      versioning: true
+      notifications: false
+  
+  prod:
+    aws:
+      auth_type: "oidc"  # Use OIDC for production
+    deployment:
+      versioning: true
+      notifications: true
+      auto_rollback:
+        enabled: true
+        strategy: "last_successful"
+        triggers:
+          on_deployment_failure: true
+          on_health_check_failure: false
+
+deployment:
+  health_check:
+    enabled: true
+    timeout: 30
+    test_payload_object:
+      event_type: "health_check"
+      source: "deployment_validation"
+      timestamp: "auto"
+      environment: "auto"
+    expected_status_code: 200
+    expected_response_contains: "healthy"
+    retry_attempts: 3
+    retry_delay: 5
+  
+  notifications:
+    teams:
+      enabled: true
+      on_success: true
+      on_failure: true
+      on_rollback: true
