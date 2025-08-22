@@ -4,12 +4,14 @@ set -euo pipefail
 # version-history.sh - Get last successful version for rollback capability
 
 source "$(dirname "${BASH_SOURCE[0]}")/retry-utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/config-utils.sh"
 
 get_last_successful_version() {
     echo "🔍 Getting last successful version for potential rollback..."
     
-    # Get config file path from environment or use default
-    local config_file="${CONFIG_FILE_PATH:-lambda-deploy-config.yml}"
+    # Find config file using common utility
+    local config_file
+    config_file=$(find_config_file "${CONFIG_FILE_PATH:-}")
     
     echo "Using config file: $config_file"
     

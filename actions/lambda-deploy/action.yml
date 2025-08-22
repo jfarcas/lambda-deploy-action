@@ -97,6 +97,8 @@ runs:
       id: get-last-version
       if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
+      env:
+        CONFIG_FILE_PATH: ${{ steps.load-config.outputs.config-file-path }}
       run: |
         source ${{ github.action_path }}/scripts/version-history.sh
         get_last_successful_version
