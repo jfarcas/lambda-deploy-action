@@ -861,10 +861,45 @@ runs:
         
         if [[ "$TEST_PAYLOAD" != "null" ]]; then
           echo "Running health check with test payload..."
-          if aws lambda invoke --function-name "$LAMBDA_FUNCTION" --payload "$TEST_PAYLOAD" /tmp/test-response.json > /dev/null 2>&1; then
-            echo "✅ Health check passed"
+          echo "Test payload: $TEST_PAYLOAD"
+          
+          # Invoke the function and capture both stdout and stderr
+          if aws lambda invoke \
+            --function-name "$LAMBDA_FUNCTION" \
+            --payload "$TEST_PAYLOAD" \
+            /tmp/test-response.json \
+            --cli-read-timeout 30 \
+            --cli-connect-timeout 10 > /tmp/invoke-output.json 2>&1; then
+            
+            echo "✅ Lambda invocation succeeded"
+            
+            # Check the response
+            if [[ -f "/tmp/test-response.json" ]]; then
+              echo "📋 Lambda response:"
+              cat /tmp/test-response.json | jq . 2>/dev/null || cat /tmp/test-response.json
+              
+              # Check if response contains an error
+              if grep -q '"errorMessage"' /tmp/test-response.json 2>/dev/null; then
+                echo "::warning::Lambda function returned an error in response"
+                echo "::warning::Function deployed successfully but may have runtime issues"
+              else
+                echo "✅ Health check passed - function is working correctly"
+              fi
+            else
+              echo "::warning::No response file generated"
+            fi
+            
+            # Show invocation metadata
+            if [[ -f "/tmp/invoke-output.json" ]]; then
+              echo "📊 Invocation metadata:"
+              cat /tmp/invoke-output.json | jq . 2>/dev/null || cat /tmp/invoke-output.json
+            fi
+            
           else
-            echo "::warning::Health check failed - function may still work for other inputs"
+            echo "::warning::Health check failed - Lambda invocation failed"
+            echo "📋 Error details:"
+            cat /tmp/invoke-output.json 2>/dev/null || echo "No error details available"
+            echo "::warning::Function may still work for other inputs or after initialization"
           fi
         fi
         
