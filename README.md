@@ -61,10 +61,11 @@ github-actions-collection/
 │   │   ├── CHANGELOG.md                  # Version history
 │   │   ├── CONTRIBUTING.md               # Contribution guide
 │   │   ├── docs/                         # Comprehensive docs
-│   │   ├── examples/                     # Configuration examples
-│   │   └── workflows/                    # Reusable workflows
-│   │       └── workflow.yml
+│   │   └── examples/                     # Configuration examples
 │   └── ssh-deploy/                       # Future SSH action
+├── .github/
+│   └── workflows/
+│       └── lambda-deploy-reusable.yml    # Reusable workflow
 ├── README.md                             # This file
 ├── CONTRIBUTING.md                       # Repository guidelines
 └── LICENSE                               # MIT license
@@ -87,7 +88,7 @@ github-actions-collection/
 # Use the included reusable workflow
 jobs:
   deploy:
-    uses: YourOrg/github-actions-collection/actions/lambda-deploy/workflows/workflow.yml@v1.0.0
+    uses: YourOrg/github-actions-collection/.github/workflows/lambda-deploy-reusable.yml@v1.0.0
     with:
       config-file: "lambda-deploy-config.yml"
       environment: "prod"

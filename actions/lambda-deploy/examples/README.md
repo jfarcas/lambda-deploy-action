@@ -43,7 +43,7 @@ jobs:
 # Use the included reusable workflow
 jobs:
   deploy:
-    uses: YourOrg/github-actions-collection/actions/lambda-deploy/workflows/workflow.yml@v1.0.0
+    uses: YourOrg/github-actions-collection/.github/workflows/lambda-deploy-reusable.yml@v1.0.0
     with:
       config-file: "lambda-deploy-config.yml"
       environment: ${{ inputs.environment }}
