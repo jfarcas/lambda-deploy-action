@@ -86,8 +86,17 @@ jobs:
     # Permissions are inherited from the calling workflow
 
     steps:
-      - name: Checkout code
+      - name: Checkout action repository
         uses: actions/checkout@v4
+        with:
+          repository: jfarcas/lambda-deploy-action
+          ref: main
+          path: lambda-deploy-action
+
+      - name: Checkout calling repository
+        uses: actions/checkout@v4
+        with:
+          path: source
 
       - name: Debug Environment Variables (if enabled)
         if: inputs.debug == true
@@ -108,7 +117,7 @@ jobs:
           echo "secrets.TEAMS_WEBHOOK_URL: '${{ secrets.TEAMS_WEBHOOK_URL && 'SET' || 'NOT_SET' }}'"
 
       - name: Deploy or Rollback Lambda Function
-        uses: ./actions/lambda-deploy
+        uses: ./lambda-deploy-action/actions/lambda-deploy
         env:
           # Required AWS credentials
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -123,7 +132,7 @@ jobs:
           # Optional: Teams webhook for notifications
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         with:
-          config-file: ${{ inputs.config-file }}
+          config-file: source/${{ inputs.config-file }}
           environment: ${{ inputs.environment }}
           version: ${{ inputs.version }}
           force-deploy: ${{ inputs.force-deploy }}
