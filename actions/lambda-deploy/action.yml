@@ -1010,8 +1010,12 @@ runs:
             
             # Wait for function to be ready before publishing version
             echo "⏳ Waiting for Lambda function to be ready for version publishing..."
+            echo "🔍 Debug: Function name: $LAMBDA_FUNCTION"
+            echo "🔍 Debug: Expected states: State=Active AND LastUpdateStatus=Successful"
+            
             WAIT_COUNT=0
-            MAX_WAIT_ATTEMPTS=30  # 30 attempts * 2 seconds = 60 seconds max wait
+            MAX_WAIT_ATTEMPTS=60  # Increased to 60 attempts * 2 seconds = 120 seconds max wait
+            FUNCTION_READY=false
             
             while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
               FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
@@ -1021,16 +1025,44 @@ runs:
               
               if [[ "$FUNCTION_STATE" == "Active" && "$LAST_UPDATE_STATUS" == "Successful" ]]; then
                 echo "✅ Lambda function is ready for version publishing"
+                FUNCTION_READY=true
                 break
               elif [[ "$LAST_UPDATE_STATUS" == "Failed" ]]; then
-                echo "::error::Lambda function update failed"
+                echo "::error::Lambda function update failed with status: $LAST_UPDATE_STATUS"
+                echo "::error::Function state: $FUNCTION_STATE"
+                
+                # Get more detailed error information
+                echo "🔍 Getting detailed function configuration for debugging..."
+                aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration' --output json > /tmp/function-debug.json 2>/dev/null || true
+                if [[ -f /tmp/function-debug.json ]]; then
+                  echo "🔍 Function configuration:"
+                  cat /tmp/function-debug.json | jq '.'
+                fi
+                
                 exit 1
               fi
               
               ((WAIT_COUNT++))
               if [[ $WAIT_COUNT -eq $MAX_WAIT_ATTEMPTS ]]; then
-                echo "::warning::Timeout waiting for Lambda function to be ready, attempting to publish anyway..."
+                echo "::warning::Timeout waiting for Lambda function to be ready after $((MAX_WAIT_ATTEMPTS * 2)) seconds"
+                echo "::warning::Final state: $FUNCTION_STATE, LastUpdateStatus: $LAST_UPDATE_STATUS"
+                echo "::warning::This may indicate a large deployment or temporary AWS service delay"
+                
+                # Get detailed function information for debugging
+                echo "🔍 Getting detailed function configuration for debugging..."
+                aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration' --output json > /tmp/function-timeout-debug.json 2>/dev/null || true
+                if [[ -f /tmp/function-timeout-debug.json ]]; then
+                  echo "🔍 Function configuration at timeout:"
+                  cat /tmp/function-timeout-debug.json | jq '.'
+                fi
+                
+                echo "::warning::Attempting to publish version anyway..."
                 break
+              fi
+              
+              # Show progress every 10 attempts (20 seconds)
+              if [[ $((WAIT_COUNT % 10)) -eq 0 ]]; then
+                echo "  ⏱️  Still waiting... ($((WAIT_COUNT * 2))s elapsed, $((MAX_WAIT_ATTEMPTS * 2))s max)"
               fi
               
               echo "  Waiting... (attempt $WAIT_COUNT/$MAX_WAIT_ATTEMPTS)"
@@ -1039,17 +1071,45 @@ runs:
             
             # Then publish a version with description
             echo "📝 Publishing version with description..."
-            if aws lambda publish-version \
-              --function-name "$LAMBDA_FUNCTION" \
-              --description "$VERSION_DESCRIPTION" > /tmp/lambda-publish.json; then
-              
-              # Use the published version info
-              cp /tmp/lambda-publish.json /tmp/lambda-update.json
-              break
-            else
-              echo "::warning::Failed to publish version with description, retrying..."
-              ((RETRY_COUNT++))
+            
+            # Add additional wait if function wasn't ready
+            if [[ "$FUNCTION_READY" != "true" ]]; then
+              echo "⏳ Function may still be updating, waiting additional 10 seconds before version publishing..."
+              sleep 10
             fi
+            
+            # Try to publish version with better error handling
+            PUBLISH_ATTEMPTS=0
+            MAX_PUBLISH_ATTEMPTS=3
+            
+            while [[ $PUBLISH_ATTEMPTS -lt $MAX_PUBLISH_ATTEMPTS ]]; do
+              ((PUBLISH_ATTEMPTS++))
+              echo "  Publishing version attempt $PUBLISH_ATTEMPTS/$MAX_PUBLISH_ATTEMPTS..."
+              
+              if aws lambda publish-version \
+                --function-name "$LAMBDA_FUNCTION" \
+                --description "$VERSION_DESCRIPTION" > /tmp/lambda-publish.json 2>/tmp/lambda-publish-error.log; then
+                
+                echo "✅ Version published successfully"
+                # Use the published version info
+                cp /tmp/lambda-publish.json /tmp/lambda-update.json
+                break
+              else
+                PUBLISH_ERROR=$(cat /tmp/lambda-publish-error.log 2>/dev/null || echo "Unknown error")
+                echo "::warning::Failed to publish version (attempt $PUBLISH_ATTEMPTS/$MAX_PUBLISH_ATTEMPTS): $PUBLISH_ERROR"
+                
+                if [[ $PUBLISH_ATTEMPTS -eq $MAX_PUBLISH_ATTEMPTS ]]; then
+                  echo "::error::Failed to publish version after $MAX_PUBLISH_ATTEMPTS attempts"
+                  echo "::error::Last error: $PUBLISH_ERROR"
+                  echo "::error::This may be due to the function still being in an updating state"
+                  exit 1
+                fi
+                
+                echo "  Waiting 5 seconds before retry..."
+                sleep 5
+              fi
+            done
+            break
           else
             ((RETRY_COUNT++))
             if [[ $RETRY_COUNT -eq $MAX_RETRIES ]]; then
@@ -1617,7 +1677,8 @@ runs:
           # Wait for function to be ready before publishing rollback version
           echo "⏳ Waiting for Lambda function to be ready for rollback version publishing..."
           WAIT_COUNT=0
-          MAX_WAIT_ATTEMPTS=30  # 30 attempts * 2 seconds = 60 seconds max wait
+          MAX_WAIT_ATTEMPTS=60  # Increased to 60 attempts * 2 seconds = 120 seconds max wait
+          ROLLBACK_FUNCTION_READY=false
           
           while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
             FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
@@ -1627,15 +1688,20 @@ runs:
             
             if [[ "$FUNCTION_STATE" == "Active" && "$LAST_UPDATE_STATUS" == "Successful" ]]; then
               echo "✅ Lambda function is ready for rollback version publishing"
+              ROLLBACK_FUNCTION_READY=true
               break
             elif [[ "$LAST_UPDATE_STATUS" == "Failed" ]]; then
-              echo "::error::Lambda function rollback update failed"
+              echo "::error::Lambda function rollback update failed with status: $LAST_UPDATE_STATUS"
+              echo "::error::Function state: $FUNCTION_STATE"
               exit 1
             fi
             
             ((WAIT_COUNT++))
             if [[ $WAIT_COUNT -eq $MAX_WAIT_ATTEMPTS ]]; then
-              echo "::warning::Timeout waiting for Lambda function to be ready for rollback, attempting to publish anyway..."
+              echo "::warning::Timeout waiting for Lambda function to be ready for rollback after $((MAX_WAIT_ATTEMPTS * 2)) seconds"
+              echo "::warning::Final state: $FUNCTION_STATE, LastUpdateStatus: $LAST_UPDATE_STATUS"
+              echo "::warning::This may indicate a large deployment or temporary AWS service delay"
+              echo "::warning::Attempting to publish rollback version anyway..."
               break
             fi
             
@@ -1645,9 +1711,42 @@ runs:
           
           # Then publish a version with rollback description
           echo "📝 Publishing rollback version with description..."
-          if aws lambda publish-version \
-            --function-name "$LAMBDA_FUNCTION" \
-            --description "$ROLLBACK_DESCRIPTION" > /tmp/rollback-update.json; then
+          
+          # Add additional wait if function wasn't ready
+          if [[ "$ROLLBACK_FUNCTION_READY" != "true" ]]; then
+            echo "⏳ Function may still be updating, waiting additional 10 seconds before rollback version publishing..."
+            sleep 10
+          fi
+          
+          # Try to publish rollback version with better error handling
+          ROLLBACK_PUBLISH_ATTEMPTS=0
+          MAX_ROLLBACK_PUBLISH_ATTEMPTS=3
+          
+          while [[ $ROLLBACK_PUBLISH_ATTEMPTS -lt $MAX_ROLLBACK_PUBLISH_ATTEMPTS ]]; do
+            ((ROLLBACK_PUBLISH_ATTEMPTS++))
+            echo "  Publishing rollback version attempt $ROLLBACK_PUBLISH_ATTEMPTS/$MAX_ROLLBACK_PUBLISH_ATTEMPTS..."
+            
+            if aws lambda publish-version \
+              --function-name "$LAMBDA_FUNCTION" \
+              --description "$ROLLBACK_DESCRIPTION" > /tmp/rollback-update.json 2>/tmp/rollback-publish-error.log; then
+              
+              echo "✅ Rollback version published successfully"
+              break
+            else
+              ROLLBACK_PUBLISH_ERROR=$(cat /tmp/rollback-publish-error.log 2>/dev/null || echo "Unknown error")
+              echo "::warning::Failed to publish rollback version (attempt $ROLLBACK_PUBLISH_ATTEMPTS/$MAX_ROLLBACK_PUBLISH_ATTEMPTS): $ROLLBACK_PUBLISH_ERROR"
+              
+              if [[ $ROLLBACK_PUBLISH_ATTEMPTS -eq $MAX_ROLLBACK_PUBLISH_ATTEMPTS ]]; then
+                echo "::error::Failed to publish rollback version after $MAX_ROLLBACK_PUBLISH_ATTEMPTS attempts"
+                echo "::error::Last error: $ROLLBACK_PUBLISH_ERROR"
+                echo "::error::This may be due to the function still being in an updating state"
+                exit 1
+              fi
+              
+              echo "  Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
             
             # Get rollback deployment info
             LAMBDA_VERSION=$(jq -r '.Version' /tmp/rollback-update.json)
