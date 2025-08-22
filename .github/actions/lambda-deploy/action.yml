@@ -53,6 +53,14 @@ runs:
     - name: Set Environment Variables from Inputs
       shell: bash
       run: |
+        echo "🔍 Raw input debugging:"
+        echo "inputs.s3-bucket-name: '${{ inputs.s3-bucket-name }}'"
+        echo "inputs.lambda-function-name: '${{ inputs.lambda-function-name }}'"
+        echo "inputs.aws-region: '${{ inputs.aws-region }}'"
+        echo "inputs.aws-access-key-id: '${{ inputs.aws-access-key-id && 'SET' || 'NOT SET' }}'"
+        echo "inputs.aws-secret-access-key: '${{ inputs.aws-secret-access-key && 'SET' || 'NOT SET' }}'"
+        echo "inputs.aws-role-arn: '${{ inputs.aws-role-arn && 'SET' || 'NOT SET' }}'"
+        
         # Set environment variables from inputs, with fallbacks to existing env vars
         if [[ -n "${{ inputs.aws-access-key-id }}" ]]; then
           echo "AWS_ACCESS_KEY_ID=${{ inputs.aws-access-key-id }}" >> $GITHUB_ENV
@@ -84,7 +92,7 @@ runs:
         fi
         
         # Debug: Show what we received
-        echo "🔍 Input values received:"
+        echo "🔍 Environment variables after processing:"
         echo "S3_BUCKET_NAME: ${S3_BUCKET_NAME:-'NOT SET'}"
         echo "LAMBDA_FUNCTION_NAME: ${LAMBDA_FUNCTION_NAME:-'NOT SET'}"
         echo "AWS_REGION: ${AWS_REGION:-'NOT SET'}"
