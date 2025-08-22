@@ -864,20 +864,43 @@ runs:
         else
           echo "Running health check with test payload..."
           
-          # Use a completely hardcoded, clean JSON payload to avoid any parsing issues
-          # Use printf instead of echo to avoid trailing newline
-          printf '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' > /tmp/test-payload.json
+          # Get test payload from configuration
+          CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+          TEST_PAYLOAD=$(yq eval '.deployment.health_check.test_payload // null' "$CONFIG_FILE")
+          TEST_PAYLOAD_OBJECT=$(yq eval '.deployment.health_check.test_payload_object // null' "$CONFIG_FILE")
           
-          echo "Using hardcoded clean JSON payload:"
+          # Determine which payload format to use
+          if [[ "$TEST_PAYLOAD_OBJECT" != "null" ]]; then
+            echo "Using YAML object format for payload"
+            # Convert YAML object to JSON and clean it
+            yq eval '.deployment.health_check.test_payload_object' "$CONFIG_FILE" -o json | tr -d '\r\n\t' | sed 's/[[:cntrl:]]//g' > /tmp/raw-payload.json
+            # Remove any trailing whitespace and ensure clean JSON
+            jq -c . /tmp/raw-payload.json > /tmp/test-payload.json 2>/dev/null || {
+              echo "::error::Invalid YAML object in test_payload_object"
+              return 1
+            }
+            rm -f /tmp/raw-payload.json
+          elif [[ "$TEST_PAYLOAD" != "null" ]]; then
+            echo "Using JSON string format for payload"
+            # Clean the JSON string and create file
+            CLEANED_PAYLOAD=$(echo "$TEST_PAYLOAD" | tr -d '\r\n\t' | sed 's/[[:cntrl:]]//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            echo "$CLEANED_PAYLOAD" | jq -c . > /tmp/test-payload.json 2>/dev/null || {
+              echo "::error::Invalid JSON in test_payload: $TEST_PAYLOAD"
+              return 1
+            }
+          else
+            echo "No test payload configured, using default"
+            printf '{"name":"Test","source":"deployment"}' > /tmp/test-payload.json
+          fi
+          
+          echo "Using test payload:"
           cat /tmp/test-payload.json
           echo ""
-          echo "Hex dump to verify no control characters:"
-          hexdump -C /tmp/test-payload.json | head -3
           echo "File size: $(wc -c < /tmp/test-payload.json) bytes"
           
           # Validate JSON syntax
           if ! jq . /tmp/test-payload.json > /dev/null 2>&1; then
-            echo "::error::Invalid JSON in hardcoded payload - this should not happen"
+            echo "::error::Invalid JSON in test payload"
             cat /tmp/test-payload.json
             rm -f /tmp/test-payload.json
             return 1
@@ -885,9 +908,9 @@ runs:
           
           echo "JSON validation passed, invoking Lambda..."
           
-          # Try base64 encoding the payload
-          PAYLOAD_BASE64=$(printf '{"name":"Test","source":"deployment","timestamp":"2025-08-22"}' | base64 -w 0)
-          echo "Base64 encoded payload: $PAYLOAD_BASE64"
+          # Base64 encode the payload for AWS CLI
+          PAYLOAD_BASE64=$(cat /tmp/test-payload.json | base64 -w 0)
+          echo "Payload ready for Lambda invocation"
           
           # Invoke the function using base64 payload
           if aws lambda invoke \
@@ -1046,3 +1069,4 @@ runs:
           echo "Retrying Teams notification ($RETRY_COUNT/$MAX_RETRIES) in 5 seconds..."
           sleep 5
         done
+
