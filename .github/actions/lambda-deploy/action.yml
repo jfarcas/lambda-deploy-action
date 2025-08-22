@@ -17,6 +17,9 @@ inputs:
     description: 'Force deployment even if version already exists'
     required: false
     default: 'false'
+  rollback-to-version:
+    description: 'Version to rollback to (if specified, performs rollback instead of normal deployment)'
+    required: false
   debug:
     description: 'Enable debug output for troubleshooting'
     required: false
@@ -24,17 +27,23 @@ inputs:
 
 outputs:
   deployed-version:
-    description: 'Version that was deployed'
-    value: ${{ steps.get-version.outputs.version }}
+    description: 'Version that was deployed or rolled back to'
+    value: ${{ steps.get-version.outputs.version || steps.retrieve-rollback.outputs.version }}
   deployment-environment:
     description: 'Environment where deployment occurred'
     value: ${{ steps.determine-env.outputs.environment }}
   lambda-version:
     description: 'Lambda function version number'
-    value: ${{ steps.deploy-lambda.outputs.lambda-version }}
+    value: ${{ steps.deploy-to-s3.outputs.lambda-version }}
   s3-location:
     description: 'S3 location of the deployment package'
-    value: ${{ steps.deploy-lambda.outputs.s3-location }}
+    value: ${{ steps.deploy-to-s3.outputs.s3-location }}
+  deployment-type:
+    description: 'Type of deployment (deploy or rollback)'
+    value: ${{ steps.deployment-mode.outputs.deployment-mode }}
+  rollback-version:
+    description: 'Version that was rolled back to (only for rollback deployments)'
+    value: ${{ steps.retrieve-rollback.outputs.version }}
 
 runs:
   using: "composite"
@@ -80,6 +89,31 @@ runs:
         echo "S3_BUCKET_NAME: $S3_BUCKET_NAME"
         echo "LAMBDA_FUNCTION_NAME: $LAMBDA_FUNCTION_NAME"
         echo "AWS_REGION: $AWS_REGION"
+
+    - name: Determine Deployment Mode
+      id: deployment-mode
+      shell: bash
+      run: |
+        if [[ -n "${{ inputs.rollback-to-version }}" ]]; then
+          echo "🔄 Rollback mode detected"
+          echo "deployment-mode=rollback" >> $GITHUB_OUTPUT
+          echo "target-version=${{ inputs.rollback-to-version }}" >> $GITHUB_OUTPUT
+          echo "DEPLOYMENT_MODE=rollback" >> $GITHUB_ENV
+          echo "TARGET_VERSION=${{ inputs.rollback-to-version }}" >> $GITHUB_ENV
+          
+          # Validate rollback version format
+          if [[ ! "${{ inputs.rollback-to-version }}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "::error::Invalid rollback version format: ${{ inputs.rollback-to-version }}"
+            echo "::error::Expected format: v1.2.3 or 1.2.3"
+            exit 1
+          fi
+          
+          echo "🎯 Target rollback version: ${{ inputs.rollback-to-version }}"
+        else
+          echo "🚀 Normal deployment mode"
+          echo "deployment-mode=deploy" >> $GITHUB_OUTPUT
+          echo "DEPLOYMENT_MODE=deploy" >> $GITHUB_ENV
+        fi
 
     - name: Install yq for YAML parsing
       shell: bash
@@ -187,6 +221,7 @@ runs:
         echo "Version to deploy: $VERSION"
 
     - name: Setup Runtime Environment
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
       run: |
         set -e
@@ -383,6 +418,7 @@ runs:
         fi
 
     - name: Build Lambda Package
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
       run: |
         set -e
@@ -622,40 +658,122 @@ runs:
         echo "✅ No version conflicts detected"
         echo "can-deploy=true" >> $GITHUB_OUTPUT
 
+    - name: Retrieve Rollback Artifact
+      id: retrieve-rollback
+      if: steps.deployment-mode.outputs.deployment-mode == 'rollback'
+      shell: bash
+      run: |
+        set -e
+        
+        echo "🔄 Retrieving rollback artifact from S3..."
+        
+        # Set variables
+        ROLLBACK_VERSION="${{ steps.deployment-mode.outputs.target-version }}"
+        S3_BUCKET="$S3_BUCKET_NAME"
+        LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
+        
+        # Normalize version (remove 'v' prefix if present)
+        NORMALIZED_VERSION=$(echo "$ROLLBACK_VERSION" | sed 's/^v//')
+        
+        # Construct S3 key for the rollback version
+        S3_KEY="${LAMBDA_FUNCTION}/${NORMALIZED_VERSION}/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip"
+        
+        echo "🔍 Looking for rollback artifact:"
+        echo "S3 Bucket: $S3_BUCKET"
+        echo "S3 Key: $S3_KEY"
+        
+        # Check if the rollback version exists in S3
+        if ! aws s3api head-object --bucket "$S3_BUCKET" --key "$S3_KEY" > /dev/null 2>&1; then
+          echo "::error::Rollback version $ROLLBACK_VERSION not found in S3"
+          echo "::error::S3 location: s3://$S3_BUCKET/$S3_KEY"
+          echo "::error::Available versions:"
+          aws s3 ls "s3://$S3_BUCKET/$LAMBDA_FUNCTION/" --recursive | grep "\.zip$" | head -10 || echo "No versions found"
+          exit 1
+        fi
+        
+        echo "✅ Rollback artifact found in S3"
+        
+        # Create deployment directory
+        mkdir -p deployment
+        
+        # Download the rollback artifact
+        echo "📥 Downloading rollback artifact..."
+        aws s3 cp "s3://$S3_BUCKET/$S3_KEY" "deployment/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip"
+        
+        if [[ ! -f "deployment/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip" ]]; then
+          echo "::error::Failed to download rollback artifact"
+          exit 1
+        fi
+        
+        # Verify the downloaded file
+        FILE_SIZE=$(stat -f%z "deployment/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip" 2>/dev/null || stat -c%s "deployment/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip" 2>/dev/null)
+        echo "📦 Downloaded artifact size: $FILE_SIZE bytes"
+        
+        if [[ $FILE_SIZE -lt 1000 ]]; then
+          echo "::warning::Downloaded file seems too small ($FILE_SIZE bytes)"
+        fi
+        
+        # Set outputs for deployment step
+        echo "s3-key=$S3_KEY" >> $GITHUB_OUTPUT
+        echo "local-file=deployment/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip" >> $GITHUB_OUTPUT
+        echo "version=$NORMALIZED_VERSION" >> $GITHUB_OUTPUT
+        
+        echo "✅ Rollback artifact ready for deployment"
+
     - name: Deploy to S3 and Lambda
       id: deploy-to-s3
-      if: steps.version-check.outputs.can-deploy == 'true'
+      if: steps.version-check.outputs.can-deploy == 'true' || steps.deployment-mode.outputs.deployment-mode == 'rollback'
       shell: bash
       run: |
         set -e
         
         ENV="${{ steps.determine-env.outputs.environment }}"
-        VERSION="${{ steps.get-version.outputs.version }}"
         S3_BUCKET="${{ env.S3_BUCKET_NAME }}"
         LAMBDA_FUNCTION="${{ env.LAMBDA_FUNCTION_NAME }}"
-        ARTIFACT_PATH="${{ env.ARTIFACT_PATH }}"
+        DEPLOYMENT_MODE="${{ steps.deployment-mode.outputs.deployment-mode }}"
         
-        echo "🚀 Starting deployment to $ENV environment..."
-        echo "  Version: $VERSION"
-        echo "  S3 Bucket: $S3_BUCKET"
-        echo "  Lambda Function: $LAMBDA_FUNCTION"
-        echo "  Package: $ARTIFACT_PATH"
-        
-        # Generate unique S3 key for this deployment
-        TIMESTAMP=$(date +%s)
-        S3_KEY_BASE="$LAMBDA_FUNCTION"
-        
-        # Upload to S3 with retry logic
-        echo "📦 Uploading package to S3..."
-        if [[ "$ENV" == "dev" ]]; then
-          # For dev, use timestamp to avoid conflicts
-          S3_KEY="$S3_KEY_BASE/dev/$TIMESTAMP/lambda.zip"
-          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP"
+        if [[ "$DEPLOYMENT_MODE" == "rollback" ]]; then
+          # Rollback deployment
+          VERSION="${{ steps.retrieve-rollback.outputs.version }}"
+          S3_KEY="${{ steps.retrieve-rollback.outputs.s3-key }}"
+          ARTIFACT_PATH="${{ steps.retrieve-rollback.outputs.local-file }}"
+          
+          echo "🔄 Starting rollback deployment to $ENV environment..."
+          echo "  Rollback to Version: $VERSION"
+          echo "  S3 Bucket: $S3_BUCKET"
+          echo "  Lambda Function: $LAMBDA_FUNCTION"
+          echo "  Rollback Package: $ARTIFACT_PATH"
+          echo "  S3 Key: $S3_KEY"
+          
         else
-          # For pre/prod, use versioning
-          S3_KEY="$S3_KEY_BASE/versions/$VERSION/lambda.zip"
-          aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION"
-          # Also update latest
+          # Normal deployment
+          VERSION="${{ steps.get-version.outputs.version }}"
+          ARTIFACT_PATH="${{ env.ARTIFACT_PATH }}"
+          
+          echo "🚀 Starting deployment to $ENV environment..."
+          echo "  Version: $VERSION"
+          echo "  S3 Bucket: $S3_BUCKET"
+          echo "  Lambda Function: $LAMBDA_FUNCTION"
+          echo "  Package: $ARTIFACT_PATH"
+          
+          # Generate unique S3 key for this deployment
+          TIMESTAMP=$(date +%s)
+          S3_KEY_BASE="$LAMBDA_FUNCTION"
+          
+          # Upload to S3 with retry logic
+          echo "📦 Uploading package to S3..."
+          if [[ "$ENV" == "dev" ]]; then
+            # For dev, use timestamp to avoid conflicts
+            S3_KEY="$S3_KEY_BASE/dev/$TIMESTAMP/lambda.zip"
+            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP"
+          else
+            # For pre/prod, use versioning
+            S3_KEY="$S3_KEY_BASE/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
+            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION"
+          fi
+          
+          echo "✅ Package uploaded to s3://$S3_BUCKET/$S3_KEY"
+        fi
           aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY_BASE/latest/lambda.zip" --metadata "environment=$ENV,version=$VERSION"
         fi
         
@@ -688,16 +806,32 @@ runs:
         
         # Tag the version with comprehensive metadata
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-        COMMIT_SHA_SHORT=$(git rev-parse --short HEAD)
+        COMMIT_SHA_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
         BRANCH_NAME="${{ github.ref_name }}"
+        TIMESTAMP=$(date +%s)
         
-        TAGS="Version=$VERSION,Environment=$ENV,CommitSHA=$COMMIT_SHA_SHORT,Branch=$BRANCH_NAME,DeployedBy=${{ github.actor }},Timestamp=$TIMESTAMP"
+        if [[ "$DEPLOYMENT_MODE" == "rollback" ]]; then
+          # Rollback-specific tagging
+          TAGS="Version=$VERSION,Environment=$ENV,DeploymentType=rollback,RollbackBy=${{ github.actor }},RollbackTimestamp=$TIMESTAMP,Branch=$BRANCH_NAME"
+          echo "🏷️ Tagging Lambda function for rollback deployment..."
+        else
+          # Normal deployment tagging
+          TAGS="Version=$VERSION,Environment=$ENV,DeploymentType=deploy,CommitSHA=$COMMIT_SHA_SHORT,Branch=$BRANCH_NAME,DeployedBy=${{ github.actor }},Timestamp=$TIMESTAMP"
+          echo "🏷️ Tagging Lambda function for normal deployment..."
+        fi
         
         aws lambda tag-resource \
           --resource "arn:aws:lambda:${{ env.AWS_REGION }}:$ACCOUNT_ID:function:$LAMBDA_FUNCTION" \
           --tags "$TAGS" || echo "::warning::Failed to tag Lambda function"
         
-        echo "✅ Deployment completed successfully!"
+        if [[ "$DEPLOYMENT_MODE" == "rollback" ]]; then
+          echo "✅ Rollback completed successfully!"
+          echo "  Rolled back to Version: $VERSION"
+        else
+          echo "✅ Deployment completed successfully!"
+          echo "  Deployed Version: $VERSION"
+        fi
+        
         echo "  Lambda Version: $LAMBDA_VERSION"
         echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
         echo "  S3 Location: s3://$S3_BUCKET/$S3_KEY"
@@ -706,6 +840,7 @@ runs:
         echo "lambda-version=$LAMBDA_VERSION" >> $GITHUB_OUTPUT
         echo "s3-location=s3://$S3_BUCKET/$S3_KEY" >> $GITHUB_OUTPUT
         echo "package-size=$LAMBDA_SIZE" >> $GITHUB_OUTPUT
+        echo "deployment-type=$DEPLOYMENT_MODE" >> $GITHUB_OUTPUT
 
     - name: Validate Deployment
       id: validate-deployment
@@ -781,7 +916,12 @@ runs:
         if [[ "$HEALTH_CHECK_ENABLED" == "false" ]]; then
           echo "Health check is disabled in configuration"
         else
-          echo "Running health check with test payload..."
+          DEPLOYMENT_MODE="${{ steps.deployment-mode.outputs.deployment-mode }}"
+          if [[ "$DEPLOYMENT_MODE" == "rollback" ]]; then
+            echo "Running health check after rollback..."
+          else
+            echo "Running health check with test payload..."
+          fi
           
           # Get test payload from configuration
           CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
