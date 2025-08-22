@@ -260,28 +260,8 @@ runs:
           # 1. pyproject.toml (Modern Python standard)
           if [[ -f "pyproject.toml" ]] && command -v python3 >/dev/null 2>&1; then
             echo "Found pyproject.toml, extracting version..."
-            # Try to extract version using Python
-            VERSION=$(python3 -c "
-import sys
-try:
-    if sys.version_info >= (3, 11):
-        import tomllib
-        with open('pyproject.toml', 'rb') as f:
-            data = tomllib.load(f)
-    else:
-        # Fallback for older Python versions
-        import re
-        with open('pyproject.toml', 'r') as f:
-            content = f.read()
-        match = re.search(r'version\s*=\s*[\"\'](.*?)[\"\']', content)
-        if match:
-            data = {'project': {'version': match.group(1)}}
-        else:
-            raise Exception('Version not found')
-    print(data['project']['version'])
-except Exception as e:
-    print('ERROR: ' + str(e))
-" 2>/dev/null | grep -v "ERROR" || echo "")
+            # Simple regex extraction to avoid complex Python parsing in YAML
+            VERSION=$(grep -E "^version\s*=\s*[\"'].*[\"']" pyproject.toml | sed -E "s/^version\s*=\s*[\"']([^\"']+)[\"'].*/\1/" || echo "")
             if [[ -n "$VERSION" ]]; then
               echo "Found version in pyproject.toml: $VERSION"
             fi
