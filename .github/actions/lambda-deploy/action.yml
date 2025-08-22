@@ -1,5 +1,5 @@
 name: 'Generic Lambda Deploy'
-description: 'Reusable action to deploy Lambda functions with flexible configuration'
+description: 'Reusable action to deploy Lambda functions with flexible configuration. Requires environment variables: S3_BUCKET_NAME, LAMBDA_FUNCTION_NAME, AWS_REGION, and AWS credentials (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY or AWS_ROLE_ARN).'
 
 inputs:
   config-file:

@@ -1,61 +1,69 @@
 # .github/workflows/lambda-deploy.yml
-# Workflow simplificado para repositorios Lambda usando el action genérico
+# Repository workflow template for Lambda deployment using the generic action
 
-name: Lambda Deploy
+name: Deploy Lambda Function
 
 on:
-  # Despliegue automático en push a ramas específicas
   push:
-    branches: 
+    branches:
       - main
-      - 'feature/MMDSQ**'
-  
-  # Despliegue manual para pre/prod
+      - 'feature/**'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy'
+        description: 'Target environment'
         required: true
+        default: 'dev'
         type: choice
         options:
+          - dev
           - pre
           - prod
-        default: 'pre'
-      version:
-        description: 'Version to deploy (optional - uses package.json if empty)'
+      force_deploy:
+        description: 'Force deployment'
         required: false
-        type: string
-      force-deploy:
-        description: 'Force deployment even if version exists'
-        required: false
-        type: boolean
         default: false
+        type: boolean
 
-# Permisos necesarios para OIDC
 permissions:
   id-token: write
   contents: read
 
 jobs:
   deploy:
-    name: Deploy Lambda Function
-    uses: YourOrg/devops-actions/.github/workflows/lambda-deploy-reusable.yml@lambda-deploy/v1.0.0
-    with:
-      # Configuration file (should be in repository root)
-      config-file: "lambda-deploy-config.yml"
-      
-      # Environment: 'auto' auto-detects based on branch
-      # For push: uses 'auto', for workflow_dispatch: uses input
-      environment: ${{ github.event.inputs.environment || 'auto' }}
-      
-      # Version: uses input if provided, otherwise uses package.json
-      version: ${{ github.event.inputs.version }}
-      
-      # Force deployment
-      force-deploy: ${{ github.event.inputs.force-deploy || false }}
-      
-      # Action reference - update this to point to your organization's action
-      action-ref: "YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0"
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}  # Required for environment-level secrets/variables
     
-    # Inherit all repository secrets
-    secrets: inherit
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy Lambda Function
+        uses: YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0
+        env:
+          # Required repository variables (set in GitHub repository settings)
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+          
+          # Required AWS credentials (set in GitHub repository settings)
+          # For Access Key authentication:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          
+          # For OIDC authentication (alternative to access keys):
+          # AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          
+          # Optional: Teams webhook for notifications
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        with:
+          config-file: 'lambda-deploy-config.yml'
+          environment: ${{ inputs.environment || 'auto' }}
+          force-deploy: ${{ inputs.force_deploy || 'false' }}
+
+      - name: Post-deployment actions
+        if: success()
+        run: |
+          echo "✅ Lambda deployment completed successfully"
+          echo "📦 Function: ${{ vars.LAMBDA_FUNCTION_NAME }}"
+          echo "🌍 Region: ${{ vars.AWS_REGION }}"
