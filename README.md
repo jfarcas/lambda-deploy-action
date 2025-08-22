@@ -63,15 +63,12 @@ github-actions-collection/
 │   │   ├── docs/                         # Comprehensive docs
 │   │   └── examples/                     # Configuration examples
 │   └── ssh-deploy/                       # Future SSH action
-├── .github/
-│   └── workflows/
-│       └── lambda-deploy-reusable.yml    # Reusable workflow
 ├── README.md                             # This file
 ├── CONTRIBUTING.md                       # Repository guidelines
 └── LICENSE                               # MIT license
 ```
 
-## 🎯 Usage Patterns
+## 🎯 Usage Pattern
 
 ### Direct Action Usage (Recommended)
 ```yaml
@@ -81,20 +78,12 @@ github-actions-collection/
   with:
     config-file: "lambda-deploy-config.yml"
     environment: "prod"
-```
-
-### Reusable Workflow
-```yaml
-# Use the included reusable workflow
-jobs:
-  deploy:
-    uses: YourOrg/github-actions-collection/.github/workflows/lambda-deploy-reusable.yml@v1.0.0
-    with:
-      config-file: "lambda-deploy-config.yml"
-      environment: "prod"
-    secrets:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      # ... other secrets
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+    LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+    AWS_REGION: ${{ vars.AWS_REGION }}
 ```
 
 ### Multi-Action Workflow (Future)
@@ -111,6 +100,28 @@ jobs:
   with:
     servers: "prod-servers"
 ```
+
+## 🎯 Why Direct Action Usage?
+
+### **Simplicity:**
+- ✅ Single action call - no complex workflow nesting
+- ✅ Direct control over all parameters
+- ✅ Easy to understand and debug
+
+### **Flexibility:**
+- ✅ Custom steps before/after deployment
+- ✅ Custom error handling and retry logic
+- ✅ Full control over workflow structure
+
+### **Reliability:**
+- ✅ No cross-repository dependencies
+- ✅ No permission inheritance issues
+- ✅ Straightforward troubleshooting
+
+### **Maintainability:**
+- ✅ Self-contained workflow
+- ✅ Easy to customize and extend
+- ✅ Clear action parameters and environment variables
 
 ## 📚 Documentation
 

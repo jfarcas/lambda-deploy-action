@@ -13,11 +13,9 @@ A production-ready GitHub Action for deploying AWS Lambda functions with compreh
 - **Rich Deployment Context** - Environment-specific Lambda version descriptions and aliases
 - **Enterprise Security** - Comprehensive input validation and audit trails
 
-## 📋 Usage Options
+## 📋 Usage
 
-### Option 1: Direct Action Usage (Recommended)
-
-Create `.github/workflows/lambda-deploy.yml`:
+Create `.github/workflows/lambda-deploy.yml` in your repository:
 
 ```yaml
 name: Deploy Lambda Function
@@ -45,13 +43,24 @@ on:
         required: false
         type: boolean
         default: false
+      rollback-to-version:
+        description: 'Version to rollback to (leave empty for normal deployment)'
+        required: false
+        type: string
+      debug:
+        description: 'Enable debug output'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+    environment: ${{ inputs.environment || 'dev' }}
     
     steps:
       - uses: actions/checkout@v4
@@ -62,46 +71,15 @@ jobs:
           config-file: "lambda-deploy-config.yml"
           environment: ${{ inputs.environment || 'auto' }}
           force-deploy: ${{ inputs.force-deploy || false }}
+          rollback-to-version: ${{ inputs.rollback-to-version }}
+          debug: ${{ inputs.debug || false }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
           LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
           AWS_REGION: ${{ vars.AWS_REGION }}
-```
-
-### Option 2: Reusable Workflow
-
-Use the included reusable workflow for simplified setup:
-
-```yaml
-name: Deploy Lambda Function
-
-on:
-  push:
-    branches: [main, feature/**]
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        type: choice
-        options: [dev, pre, prod]
-        default: 'dev'
-
-jobs:
-  deploy:
-    uses: YourOrg/github-actions-collection/.github/workflows/lambda-deploy-reusable.yml@v1.0.0
-    with:
-      config-file: "lambda-deploy-config.yml"
-      environment: ${{ inputs.environment || 'auto' }}
-      force-deploy: ${{ inputs.force-deploy || false }}
-    secrets:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
-      LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
 ```
 
 ## 🔧 Repository Setup
@@ -154,6 +132,7 @@ Set up these repository secrets and variables:
 **Secrets:**
 - `AWS_ACCESS_KEY_ID` - AWS access key
 - `AWS_SECRET_ACCESS_KEY` - AWS secret key
+- `TEAMS_WEBHOOK_URL` - Teams webhook URL (optional)
 
 **Variables:**
 - `S3_BUCKET_NAME` - S3 bucket for deployment artifacts
@@ -244,6 +223,16 @@ Aliases:
     version: "1.2.0-rc.1"
 ```
 
+### Debug Mode
+
+```yaml
+# Enable detailed logging
+- name: Deploy with Debug
+  uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.0.0
+  with:
+    debug: true
+```
+
 ## 🔍 Version Detection
 
 The action automatically detects versions from multiple sources in priority order:
@@ -305,7 +294,7 @@ Solution: Increment version or use force-deploy for emergencies
 **Missing Environment Variables:**
 ```
 Error: Missing required environment variables
-Solution: Set S3_BUCKET_NAME, LAMBDA_FUNCTION_NAME, AWS_REGION
+Solution: Set S3_BUCKET_NAME, LAMBDA_FUNCTION_NAME, AWS_REGION as repository variables
 ```
 
 **Health Check Failures:**
@@ -314,15 +303,27 @@ Error: Health check failed - unexpected response
 Solution: Verify test payload and expected response configuration
 ```
 
-### Debug Mode
+## 🎯 Why Direct Action Usage?
 
-Enable detailed logging:
-```yaml
-- name: Deploy with Debug
-  uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.0.0
-  with:
-    debug: true
-```
+### **Simplicity:**
+- ✅ Single action call - no complex workflow nesting
+- ✅ Direct control over all parameters
+- ✅ Easy to understand and debug
+
+### **Flexibility:**
+- ✅ Custom steps before/after deployment
+- ✅ Custom error handling and retry logic
+- ✅ Full control over workflow structure
+
+### **Reliability:**
+- ✅ No cross-repository dependencies
+- ✅ No permission inheritance issues
+- ✅ Straightforward troubleshooting
+
+### **Maintainability:**
+- ✅ Self-contained workflow
+- ✅ Easy to customize and extend
+- ✅ Clear action parameters and environment variables
 
 ## 🤝 Contributing
 
