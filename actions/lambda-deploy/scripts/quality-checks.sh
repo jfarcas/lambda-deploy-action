@@ -13,16 +13,12 @@ run_linting() {
     local lint_cmd
     lint_cmd=$(yq eval '.build.commands.lint // ""' "$config_file")
     
-    # Get lint error handling mode from config (default: blocking)
-    local lint_error_handling
-    lint_error_handling=$(yq eval '.quality_checks.lint_error_handling // "blocking"' "$config_file")
-    
     if [[ -n "$lint_cmd" && "$lint_cmd" != "null" ]]; then
         echo "Running lint command: $lint_cmd"
-        run_quality_command "lint" "$lint_cmd" "$lint_error_handling"
+        run_quality_command "lint" "$lint_cmd" "blocking"
     else
         echo "No lint command specified, trying auto-detection..."
-        run_auto_linting "$lint_error_handling"
+        run_auto_linting
     fi
     
     echo "✅ Linting completed"
@@ -142,15 +138,14 @@ run_quality_command() {
 
 # Auto-detect and run linting based on runtime
 run_auto_linting() {
-    local error_handling="${1:-blocking}"
     local runtime="${RUNTIME:-}"
     
     case "$runtime" in
         "python")
-            run_python_linting "$error_handling"
+            run_python_linting
             ;;
         "node"|"bun")
-            run_javascript_linting "$error_handling"
+            run_javascript_linting
             ;;
         *)
             echo "::warning::No auto-linting available for runtime: $runtime"
@@ -177,7 +172,6 @@ run_auto_testing() {
 
 # Python linting
 run_python_linting() {
-    local error_handling="${1:-blocking}"
     echo "🐍 Running Python linting..."
     
     local lint_tools_found=false
@@ -231,18 +225,15 @@ run_python_linting() {
     if ! $lint_tools_found; then
         echo "::warning::No Python linting tools found (flake8, pylint, black, isort)"
         echo "Consider adding linting tools to your requirements.txt or setup.py"
-    elif $lint_failed && [[ "$error_handling" == "blocking" ]]; then
+    elif $lint_failed; then
         echo "::error::Python linting failed - deployment stopped"
         echo "💥 Fix linting issues before deploying"
         return 1
-    elif $lint_failed; then
-        echo "::warning::Python linting failed but deployment will continue"
     fi
 }
 
 # JavaScript/TypeScript linting
 run_javascript_linting() {
-    local error_handling="${1:-blocking}"
     echo "🟡 Running JavaScript/TypeScript linting..."
     
     local lint_tools_found=false
@@ -299,12 +290,10 @@ run_javascript_linting() {
     if ! $lint_tools_found; then
         echo "::warning::No JavaScript linting tools found"
         echo "Consider adding ESLint or a lint script to package.json"
-    elif $lint_failed && [[ "$error_handling" == "blocking" ]]; then
+    elif $lint_failed; then
         echo "::error::JavaScript linting failed - deployment stopped"
         echo "💥 Fix linting issues before deploying"
         return 1
-    elif $lint_failed; then
-        echo "::warning::JavaScript linting failed but deployment will continue"
     fi
 }
 
