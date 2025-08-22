@@ -26,9 +26,16 @@ deployment:
   
 quality_checks:
   enabled: true
-  lint: true               # Run linting
-  test: true               # Run tests
-  security: true           # Run security scanning
+  lint: true                      # Run linting
+  test: true                      # Run tests
+  security: true                  # Run security scanning
+  lint_error_handling: "blocking" # Options: "blocking" (stop deployment), "non-blocking" (warn only)
+  
+  # Custom commands (optional)
+  # build:
+  #   commands:
+  #     lint: "npm run lint"      # Custom lint command
+  #     test: "npm test"          # Custom test command
 
 notifications:
   on_success: true

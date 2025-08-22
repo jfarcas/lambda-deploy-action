@@ -13,12 +13,16 @@ run_linting() {
     local lint_cmd
     lint_cmd=$(yq eval '.build.commands.lint // ""' "$config_file")
     
+    # Get lint error handling mode from config (default: blocking)
+    local lint_error_handling
+    lint_error_handling=$(yq eval '.quality_checks.lint_error_handling // "blocking"' "$config_file")
+    
     if [[ -n "$lint_cmd" && "$lint_cmd" != "null" ]]; then
         echo "Running lint command: $lint_cmd"
-        run_quality_command "lint" "$lint_cmd" "non-blocking"
+        run_quality_command "lint" "$lint_cmd" "$lint_error_handling"
     else
         echo "No lint command specified, trying auto-detection..."
-        run_auto_linting
+        run_auto_linting "$lint_error_handling"
     fi
     
     echo "✅ Linting completed"
@@ -81,6 +85,7 @@ run_quality_command() {
         if [[ "$error_handling" == "blocking" ]]; then
             echo "::error::$command_type failed with exit code: $exit_code"
             echo "::error::Command: $command"
+            echo "💥 Deployment stopped due to $command_type failures"
             rm -f "$output_file" "$error_file"
             return $exit_code
         else
@@ -99,14 +104,15 @@ run_quality_command() {
 
 # Auto-detect and run linting based on runtime
 run_auto_linting() {
+    local error_handling="${1:-blocking}"
     local runtime="${RUNTIME:-}"
     
     case "$runtime" in
         "python")
-            run_python_linting
+            run_python_linting "$error_handling"
             ;;
         "node"|"bun")
-            run_javascript_linting
+            run_javascript_linting "$error_handling"
             ;;
         *)
             echo "::warning::No auto-linting available for runtime: $runtime"
@@ -133,9 +139,11 @@ run_auto_testing() {
 
 # Python linting
 run_python_linting() {
+    local error_handling="${1:-blocking}"
     echo "🐍 Running Python linting..."
     
     local lint_tools_found=false
+    local lint_failed=false
     
     # Check for common Python linting tools
     if command -v flake8 >/dev/null 2>&1; then
@@ -143,7 +151,8 @@ run_python_linting() {
         if flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics; then
             echo "✅ flake8 passed"
         else
-            echo "::warning::flake8 found issues"
+            echo "❌ flake8 found issues"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -153,7 +162,8 @@ run_python_linting() {
         if find . -name "*.py" -exec pylint {} + --errors-only; then
             echo "✅ pylint passed"
         else
-            echo "::warning::pylint found issues"
+            echo "❌ pylint found issues"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -163,7 +173,8 @@ run_python_linting() {
         if black --check .; then
             echo "✅ black formatting passed"
         else
-            echo "::warning::black formatting issues found"
+            echo "❌ black formatting issues found"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -173,7 +184,8 @@ run_python_linting() {
         if isort --check-only .; then
             echo "✅ isort passed"
         else
-            echo "::warning::isort found import sorting issues"
+            echo "❌ isort found import sorting issues"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -181,14 +193,22 @@ run_python_linting() {
     if ! $lint_tools_found; then
         echo "::warning::No Python linting tools found (flake8, pylint, black, isort)"
         echo "Consider adding linting tools to your requirements.txt or setup.py"
+    elif $lint_failed && [[ "$error_handling" == "blocking" ]]; then
+        echo "::error::Python linting failed - deployment stopped"
+        echo "💥 Fix linting issues before deploying"
+        return 1
+    elif $lint_failed; then
+        echo "::warning::Python linting failed but deployment will continue"
     fi
 }
 
 # JavaScript/TypeScript linting
 run_javascript_linting() {
+    local error_handling="${1:-blocking}"
     echo "🟡 Running JavaScript/TypeScript linting..."
     
     local lint_tools_found=false
+    local lint_failed=false
     
     # Check package.json for lint script
     if [[ -f "package.json" ]] && grep -q '"lint"' package.json; then
@@ -198,14 +218,16 @@ run_javascript_linting() {
                 if bun run lint; then
                     echo "✅ bun run lint passed"
                 else
-                    echo "::warning::bun run lint found issues"
+                    echo "❌ bun run lint found issues"
+                    lint_failed=true
                 fi
                 ;;
             *)
                 if npm run lint; then
                     echo "✅ npm run lint passed"
                 else
-                    echo "::warning::npm run lint found issues"
+                    echo "❌ npm run lint found issues"
+                    lint_failed=true
                 fi
                 ;;
         esac
@@ -218,7 +240,8 @@ run_javascript_linting() {
         if eslint . --ext .js,.ts,.jsx,.tsx; then
             echo "✅ ESLint passed"
         else
-            echo "::warning::ESLint found issues"
+            echo "❌ ESLint found issues"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -229,7 +252,8 @@ run_javascript_linting() {
         if prettier --check .; then
             echo "✅ Prettier formatting passed"
         else
-            echo "::warning::Prettier formatting issues found"
+            echo "❌ Prettier formatting issues found"
+            lint_failed=true
         fi
         lint_tools_found=true
     fi
@@ -237,6 +261,12 @@ run_javascript_linting() {
     if ! $lint_tools_found; then
         echo "::warning::No JavaScript linting tools found"
         echo "Consider adding ESLint or a lint script to package.json"
+    elif $lint_failed && [[ "$error_handling" == "blocking" ]]; then
+        echo "::error::JavaScript linting failed - deployment stopped"
+        echo "💥 Fix linting issues before deploying"
+        return 1
+    elif $lint_failed; then
+        echo "::warning::JavaScript linting failed but deployment will continue"
     fi
 }
 
@@ -247,9 +277,9 @@ run_python_testing() {
     local test_runner_found=false
     
     # Check for pytest
-    if command -v pytest >/dev/null 2>&1 && find . -name "*test*.py" -o -name "test_*.py" | grep -q .; then
+    if command -v pytest >/dev/null 2>&1; then
         echo "Running pytest..."
-        if pytest --tb=short -v; then
+        if pytest -v; then
             echo "✅ pytest passed"
         else
             echo "::error::pytest failed"
@@ -259,9 +289,9 @@ run_python_testing() {
     fi
     
     # Check for unittest
-    if ! $test_runner_found && find . -name "*test*.py" | grep -q .; then
-        echo "Running unittest discover..."
-        if python -m unittest discover -s . -p "*test*.py" -v; then
+    if ! $test_runner_found && find . -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+        echo "Running unittest..."
+        if python -m unittest discover -v; then
             echo "✅ unittest passed"
         else
             echo "::error::unittest failed"
@@ -270,21 +300,9 @@ run_python_testing() {
         test_runner_found=true
     fi
     
-    # Check for tox
-    if ! $test_runner_found && [[ -f "tox.ini" ]] && command -v tox >/dev/null 2>&1; then
-        echo "Running tox..."
-        if tox; then
-            echo "✅ tox passed"
-        else
-            echo "::error::tox failed"
-            return 1
-        fi
-        test_runner_found=true
-    fi
-    
     if ! $test_runner_found; then
-        echo "::warning::No Python tests found or test runners available"
-        echo "Looked for: pytest, unittest, or tox.ini"
+        echo "::warning::No Python test runner found (pytest) or test files"
+        echo "Consider adding pytest to your requirements.txt"
     fi
 }
 
@@ -307,10 +325,10 @@ run_javascript_testing() {
                 fi
                 ;;
             *)
-                if npm run test; then
-                    echo "✅ npm run test passed"
+                if npm test; then
+                    echo "✅ npm test passed"
                 else
-                    echo "::error::npm run test failed"
+                    echo "::error::npm test failed"
                     return 1
                 fi
                 ;;
@@ -318,91 +336,68 @@ run_javascript_testing() {
         test_runner_found=true
     fi
     
-    # Check for specific test frameworks
-    if ! $test_runner_found; then
-        # Check for Jest
-        if command -v jest >/dev/null 2>&1; then
-            echo "Running Jest..."
-            if jest; then
-                echo "✅ Jest passed"
-            else
-                echo "::error::Jest failed"
-                return 1
-            fi
-            test_runner_found=true
+    # Check for Jest
+    if ! $test_runner_found && command -v jest >/dev/null 2>&1; then
+        echo "Running Jest..."
+        if jest; then
+            echo "✅ Jest passed"
+        else
+            echo "::error::Jest failed"
+            return 1
         fi
-        
-        # Check for Mocha
-        if ! $test_runner_found && command -v mocha >/dev/null 2>&1; then
-            echo "Running Mocha..."
-            if mocha; then
-                echo "✅ Mocha passed"
-            else
-                echo "::error::Mocha failed"
-                return 1
-            fi
-            test_runner_found=true
-        fi
-        
-        # Check for Vitest
-        if ! $test_runner_found && command -v vitest >/dev/null 2>&1; then
-            echo "Running Vitest..."
-            if vitest run; then
-                echo "✅ Vitest passed"
-            else
-                echo "::error::Vitest failed"
-                return 1
-            fi
-            test_runner_found=true
-        fi
+        test_runner_found=true
     fi
     
     if ! $test_runner_found; then
-        echo "::warning::No JavaScript tests found or test runners available"
-        echo "Looked for: test script in package.json, Jest, Mocha, or Vitest"
+        echo "::warning::No JavaScript test runner found"
+        echo "Consider adding a test script to package.json or installing Jest"
     fi
 }
 
-# Check code coverage (if tools are available)
+# Check code coverage
 check_coverage() {
     echo "📊 Checking code coverage..."
     
     local runtime="${RUNTIME:-}"
-    local coverage_found=false
     
     case "$runtime" in
         "python")
             if command -v coverage >/dev/null 2>&1; then
-                echo "Running Python coverage..."
-                coverage report --show-missing || echo "::warning::Coverage report failed"
-                coverage_found=true
+                echo "Running Python coverage analysis..."
+                coverage report --show-missing
+                coverage html
+                echo "✅ Coverage report generated"
+            else
+                echo "::warning::Coverage tool not found for Python"
+                echo "Consider adding 'coverage' to your requirements.txt"
             fi
             ;;
         "node"|"bun")
-            # Check if coverage is configured in package.json
-            if [[ -f "package.json" ]] && grep -q "coverage" package.json; then
-                echo "Running JavaScript coverage..."
+            if [[ -f "package.json" ]] && grep -q '"coverage"' package.json; then
+                echo "Running JavaScript coverage analysis..."
                 case "$RUNTIME" in
                     "bun")
-                        bun run coverage 2>/dev/null || echo "::warning::Coverage run failed"
+                        bun run coverage
                         ;;
                     *)
-                        npm run coverage 2>/dev/null || echo "::warning::Coverage run failed"
+                        npm run coverage
                         ;;
                 esac
-                coverage_found=true
+                echo "✅ Coverage analysis completed"
+            else
+                echo "::warning::No coverage script found in package.json"
+                echo "Consider adding a coverage script or using Jest with --coverage"
             fi
             ;;
+        *)
+            echo "::warning::No coverage analysis available for runtime: $runtime"
+            ;;
     esac
-    
-    if ! $coverage_found; then
-        echo "::notice::No code coverage tools configured"
-    fi
 }
 
-# Security vulnerability scanning
+# Run security scans
 run_security_scan() {
-    echo "🔒 Running security vulnerability scan..."
+    echo "🔒 Running security scans..."
     
     local runtime="${RUNTIME:-}"
     local security_found=false
@@ -436,17 +431,24 @@ run_security_scan() {
                 npm audit --audit-level=moderate || echo "::warning::npm audit found vulnerabilities"
                 security_found=true
             fi
+            
+            # Check for yarn audit if yarn is available
+            if command -v yarn >/dev/null 2>&1 && [[ -f "yarn.lock" ]]; then
+                echo "Running yarn audit..."
+                yarn audit || echo "::warning::yarn audit found vulnerabilities"
+                security_found=true
+            fi
             ;;
     esac
     
     if ! $security_found; then
-        echo "::notice::No security scanning tools configured"
+        echo "::warning::No security scanning tools found for runtime: $runtime"
     fi
 }
 
 # Generate quality report
 generate_quality_report() {
-    echo "📋 Generating quality report..."
+    echo "📋 Generating code quality report..."
     
     local report_file="/tmp/quality-report.md"
     
