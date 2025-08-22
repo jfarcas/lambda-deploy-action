@@ -75,22 +75,60 @@ run_quality_command() {
         cat "$output_file"
     fi
     
+    # Check for linting errors in output (ESLint/other linters may return 0 even with errors)
+    local has_lint_errors=false
+    if [[ "$command_type" == "lint" ]]; then
+        # Check for common linting error patterns
+        if [[ -s "$output_file" ]]; then
+            local output_content
+            output_content=$(cat "$output_file")
+            
+            # ESLint error patterns
+            if echo "$output_content" | grep -q "✖.*problems\|error\s\|✖.*error"; then
+                has_lint_errors=true
+                echo "🔍 Detected linting errors in output"
+            fi
+            
+            # Other linter patterns
+            if echo "$output_content" | grep -qE "E[0-9]+:|W[0-9]+:|F[0-9]+:"; then  # flake8
+                has_lint_errors=true
+                echo "🔍 Detected Python linting errors in output"
+            fi
+            
+            # Prettier/Black formatting errors
+            if echo "$output_content" | grep -q "Code style issues found\|would reformat"; then
+                has_lint_errors=true
+                echo "🔍 Detected formatting errors in output"
+            fi
+        fi
+    fi
+    
     # Handle errors based on configuration
+    local should_fail=false
+    
     if [[ $exit_code -ne 0 ]]; then
+        should_fail=true
+        echo "❌ Command failed with exit code: $exit_code"
+    elif [[ "$has_lint_errors" == "true" ]]; then
+        should_fail=true
+        echo "❌ Linting errors detected in output"
+    fi
+    
+    if [[ "$should_fail" == "true" ]]; then
         if [[ -s "$error_file" ]]; then
             echo "📋 $command_type errors:"
             cat "$error_file"
         fi
         
         if [[ "$error_handling" == "blocking" ]]; then
-            echo "::error::$command_type failed with exit code: $exit_code"
+            echo "::error::$command_type failed - linting errors found"
             echo "::error::Command: $command"
             echo "💥 Deployment stopped due to $command_type failures"
+            echo "🔧 Fix the linting errors above before deploying"
             rm -f "$output_file" "$error_file"
-            return $exit_code
+            return 1
         else
-            echo "::warning::$command_type failed but deployment will continue"
-            echo "::warning::Exit code: $exit_code"
+            echo "::warning::$command_type found issues but deployment will continue"
             echo "::warning::Command: $command"
         fi
     else
