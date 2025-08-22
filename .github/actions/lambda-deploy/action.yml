@@ -1164,7 +1164,7 @@ runs:
         PAYLOAD=$(cat <<EOF
         {
           "@type": "MessageCard",
-          "@context": "http://schema.org/extensions",
+          "@context": "https://schema.org/extensions",
           "themeColor": "28a745",
           "summary": "Lambda Deployment Successful",
           "sections": [{
