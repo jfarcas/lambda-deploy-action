@@ -979,12 +979,35 @@ runs:
         RETRY_COUNT=0
         MAX_RETRIES=3
         
+        # Create environment-specific version description
+        COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        DEPLOY_TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        
+        case "$ENV" in
+          "dev"|"development")
+            VERSION_DESCRIPTION="DEV: v$VERSION | $COMMIT_SHORT | $DEPLOY_TIMESTAMP"
+            ;;
+          "pre"|"staging"|"test")
+            VERSION_DESCRIPTION="PRE: v$VERSION | $BRANCH_NAME | $COMMIT_SHORT | $DEPLOY_TIMESTAMP"
+            ;;
+          "prod"|"production")
+            VERSION_DESCRIPTION="PROD: v$VERSION | $BRANCH_NAME | $COMMIT_SHORT | $DEPLOY_TIMESTAMP"
+            ;;
+          *)
+            VERSION_DESCRIPTION="$ENV: v$VERSION | $COMMIT_SHORT | $DEPLOY_TIMESTAMP"
+            ;;
+        esac
+        
+        echo "📝 Version description: $VERSION_DESCRIPTION"
+        
         while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
           if aws lambda update-function-code \
             --function-name "$LAMBDA_FUNCTION" \
             --s3-bucket "$S3_BUCKET" \
             --s3-key "$S3_KEY" \
-            --publish > /tmp/lambda-update.json; then
+            --publish \
+            --description "$VERSION_DESCRIPTION" > /tmp/lambda-update.json; then
             break
           else
             ((RETRY_COUNT++))
@@ -1038,6 +1061,27 @@ runs:
         echo "s3-location=s3://$S3_BUCKET/$S3_KEY" >> $GITHUB_OUTPUT
         echo "package-size=$LAMBDA_SIZE" >> $GITHUB_OUTPUT
         echo "deployment-type=$DEPLOYMENT_MODE" >> $GITHUB_OUTPUT
+        
+        # Create environment-specific alias for easier identification
+        echo "🏷️ Creating environment-specific alias..."
+        ALIAS_NAME="${ENV}-current"
+        
+        # Delete existing alias if it exists (ignore errors)
+        aws lambda delete-alias \
+          --function-name "$LAMBDA_FUNCTION" \
+          --name "$ALIAS_NAME" 2>/dev/null || true
+        
+        # Create new alias pointing to this version
+        if aws lambda create-alias \
+          --function-name "$LAMBDA_FUNCTION" \
+          --name "$ALIAS_NAME" \
+          --function-version "$LAMBDA_VERSION" \
+          --description "Current $ENV environment version: v$VERSION" > /dev/null 2>&1; then
+          echo "✅ Created alias: $ALIAS_NAME → Version $LAMBDA_VERSION"
+          echo "   You can invoke with: $LAMBDA_FUNCTION:$ALIAS_NAME"
+        else
+          echo "::warning::Failed to create alias $ALIAS_NAME (non-critical)"
+        fi
 
     - name: Validate Deployment
       id: validate-deployment
@@ -1501,11 +1545,34 @@ runs:
         
         # Update Lambda function with rollback version
         echo "🔄 Updating Lambda function to rollback version..."
+        
+        # Create rollback-specific version description
+        ROLLBACK_TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        ROLLBACK_BY="${{ github.actor }}"
+        
+        case "$ENV" in
+          "dev"|"development")
+            ROLLBACK_DESCRIPTION="DEV-ROLLBACK: v$NORMALIZED_VERSION | by $ROLLBACK_BY | $ROLLBACK_TIMESTAMP"
+            ;;
+          "pre"|"staging"|"test")
+            ROLLBACK_DESCRIPTION="PRE-ROLLBACK: v$NORMALIZED_VERSION | by $ROLLBACK_BY | $ROLLBACK_TIMESTAMP"
+            ;;
+          "prod"|"production")
+            ROLLBACK_DESCRIPTION="PROD-ROLLBACK: v$NORMALIZED_VERSION | by $ROLLBACK_BY | $ROLLBACK_TIMESTAMP"
+            ;;
+          *)
+            ROLLBACK_DESCRIPTION="$ENV-ROLLBACK: v$NORMALIZED_VERSION | by $ROLLBACK_BY | $ROLLBACK_TIMESTAMP"
+            ;;
+        esac
+        
+        echo "📝 Rollback description: $ROLLBACK_DESCRIPTION"
+        
         if aws lambda update-function-code \
           --function-name "$LAMBDA_FUNCTION" \
           --s3-bucket "$S3_BUCKET" \
           --s3-key "$S3_KEY" \
-          --publish > /tmp/rollback-update.json; then
+          --publish \
+          --description "$ROLLBACK_DESCRIPTION" > /tmp/rollback-update.json; then
           
           # Get rollback deployment info
           LAMBDA_VERSION=$(jq -r '.Version' /tmp/rollback-update.json)
@@ -1529,6 +1596,26 @@ runs:
           # Set outputs
           echo "rollback-completed=true" >> $GITHUB_OUTPUT
           echo "rollback-version=$NORMALIZED_VERSION" >> $GITHUB_OUTPUT
+          
+          # Update environment-specific alias for rollback
+          echo "🏷️ Updating environment alias after rollback..."
+          ALIAS_NAME="${ENV}-current"
+          
+          # Delete existing alias if it exists
+          aws lambda delete-alias \
+            --function-name "$LAMBDA_FUNCTION" \
+            --name "$ALIAS_NAME" 2>/dev/null || true
+          
+          # Create new alias pointing to rollback version
+          if aws lambda create-alias \
+            --function-name "$LAMBDA_FUNCTION" \
+            --name "$ALIAS_NAME" \
+            --function-version "$LAMBDA_VERSION" \
+            --description "Rolled back $ENV environment to: v$NORMALIZED_VERSION" > /dev/null 2>&1; then
+            echo "✅ Updated alias: $ALIAS_NAME → Version $LAMBDA_VERSION (rollback)"
+          else
+            echo "::warning::Failed to update alias after rollback (non-critical)"
+          fi
           
         else
           echo "::error::Auto-rollback failed"
