@@ -1013,13 +1013,30 @@ runs:
             echo "🔍 Debug: Function name: $LAMBDA_FUNCTION"
             echo "🔍 Debug: Expected states: State=Active AND LastUpdateStatus=Successful"
             
+            # Temporarily disable set -e to prevent premature exit during wait loop
+            set +e
+            
             WAIT_COUNT=0
             MAX_WAIT_ATTEMPTS=60  # Increased to 60 attempts * 2 seconds = 120 seconds max wait
             FUNCTION_READY=false
             
             while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
-              FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
-              LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null || echo "Unknown")
+              FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null)
+              FUNCTION_STATE_EXIT_CODE=$?
+              
+              LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null)
+              LAST_UPDATE_STATUS_EXIT_CODE=$?
+              
+              # Handle AWS CLI errors gracefully
+              if [[ $FUNCTION_STATE_EXIT_CODE -ne 0 ]]; then
+                FUNCTION_STATE="Unknown"
+                echo "::warning::Failed to get function state (exit code: $FUNCTION_STATE_EXIT_CODE)"
+              fi
+              
+              if [[ $LAST_UPDATE_STATUS_EXIT_CODE -ne 0 ]]; then
+                LAST_UPDATE_STATUS="Unknown"
+                echo "::warning::Failed to get last update status (exit code: $LAST_UPDATE_STATUS_EXIT_CODE)"
+              fi
               
               echo "  Function State: $FUNCTION_STATE, Last Update Status: $LAST_UPDATE_STATUS"
               
@@ -1036,9 +1053,11 @@ runs:
                 aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration' --output json > /tmp/function-debug.json 2>/dev/null || true
                 if [[ -f /tmp/function-debug.json ]]; then
                   echo "🔍 Function configuration:"
-                  cat /tmp/function-debug.json | jq '.'
+                  cat /tmp/function-debug.json | jq '.' || cat /tmp/function-debug.json
                 fi
                 
+                # Re-enable set -e before exit
+                set -e
                 exit 1
               fi
               
@@ -1053,7 +1072,7 @@ runs:
                 aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration' --output json > /tmp/function-timeout-debug.json 2>/dev/null || true
                 if [[ -f /tmp/function-timeout-debug.json ]]; then
                   echo "🔍 Function configuration at timeout:"
-                  cat /tmp/function-timeout-debug.json | jq '.'
+                  cat /tmp/function-timeout-debug.json | jq '.' || cat /tmp/function-timeout-debug.json
                 fi
                 
                 echo "::warning::Attempting to publish version anyway..."
@@ -1069,6 +1088,9 @@ runs:
               sleep 2
             done
             
+            # Re-enable set -e after wait loop
+            set -e
+            
             # Then publish a version with description
             echo "📝 Publishing version with description..."
             
@@ -1078,9 +1100,13 @@ runs:
               sleep 10
             fi
             
+            # Temporarily disable set -e for version publishing attempts
+            set +e
+            
             # Try to publish version with better error handling
             PUBLISH_ATTEMPTS=0
             MAX_PUBLISH_ATTEMPTS=3
+            PUBLISH_SUCCESS=false
             
             while [[ $PUBLISH_ATTEMPTS -lt $MAX_PUBLISH_ATTEMPTS ]]; do
               ((PUBLISH_ATTEMPTS++))
@@ -1093,15 +1119,21 @@ runs:
                 echo "✅ Version published successfully"
                 # Use the published version info
                 cp /tmp/lambda-publish.json /tmp/lambda-update.json
+                PUBLISH_SUCCESS=true
                 break
               else
+                PUBLISH_EXIT_CODE=$?
                 PUBLISH_ERROR=$(cat /tmp/lambda-publish-error.log 2>/dev/null || echo "Unknown error")
-                echo "::warning::Failed to publish version (attempt $PUBLISH_ATTEMPTS/$MAX_PUBLISH_ATTEMPTS): $PUBLISH_ERROR"
+                echo "::warning::Failed to publish version (attempt $PUBLISH_ATTEMPTS/$MAX_PUBLISH_ATTEMPTS, exit code: $PUBLISH_EXIT_CODE): $PUBLISH_ERROR"
                 
                 if [[ $PUBLISH_ATTEMPTS -eq $MAX_PUBLISH_ATTEMPTS ]]; then
                   echo "::error::Failed to publish version after $MAX_PUBLISH_ATTEMPTS attempts"
                   echo "::error::Last error: $PUBLISH_ERROR"
+                  echo "::error::Exit code: $PUBLISH_EXIT_CODE"
                   echo "::error::This may be due to the function still being in an updating state"
+                  
+                  # Re-enable set -e before exit
+                  set -e
                   exit 1
                 fi
                 
@@ -1109,7 +1141,13 @@ runs:
                 sleep 5
               fi
             done
-            break
+            
+            # Re-enable set -e after publishing attempts
+            set -e
+            
+            if [[ "$PUBLISH_SUCCESS" == "true" ]]; then
+              break
+            fi
           else
             ((RETRY_COUNT++))
             if [[ $RETRY_COUNT -eq $MAX_RETRIES ]]; then
@@ -1676,13 +1714,31 @@ runs:
           
           # Wait for function to be ready before publishing rollback version
           echo "⏳ Waiting for Lambda function to be ready for rollback version publishing..."
+          
+          # Temporarily disable set -e to prevent premature exit during wait loop
+          set +e
+          
           WAIT_COUNT=0
           MAX_WAIT_ATTEMPTS=60  # Increased to 60 attempts * 2 seconds = 120 seconds max wait
           ROLLBACK_FUNCTION_READY=false
           
           while [[ $WAIT_COUNT -lt $MAX_WAIT_ATTEMPTS ]]; do
-            FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
-            LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null || echo "Unknown")
+            FUNCTION_STATE=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.State' --output text 2>/dev/null)
+            FUNCTION_STATE_EXIT_CODE=$?
+            
+            LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null)
+            LAST_UPDATE_STATUS_EXIT_CODE=$?
+            
+            # Handle AWS CLI errors gracefully
+            if [[ $FUNCTION_STATE_EXIT_CODE -ne 0 ]]; then
+              FUNCTION_STATE="Unknown"
+              echo "::warning::Failed to get function state (exit code: $FUNCTION_STATE_EXIT_CODE)"
+            fi
+            
+            if [[ $LAST_UPDATE_STATUS_EXIT_CODE -ne 0 ]]; then
+              LAST_UPDATE_STATUS="Unknown"
+              echo "::warning::Failed to get last update status (exit code: $LAST_UPDATE_STATUS_EXIT_CODE)"
+            fi
             
             echo "  Function State: $FUNCTION_STATE, Last Update Status: $LAST_UPDATE_STATUS"
             
@@ -1693,6 +1749,9 @@ runs:
             elif [[ "$LAST_UPDATE_STATUS" == "Failed" ]]; then
               echo "::error::Lambda function rollback update failed with status: $LAST_UPDATE_STATUS"
               echo "::error::Function state: $FUNCTION_STATE"
+              
+              # Re-enable set -e before exit
+              set -e
               exit 1
             fi
             
@@ -1708,6 +1767,9 @@ runs:
             echo "  Waiting... (attempt $WAIT_COUNT/$MAX_WAIT_ATTEMPTS)"
             sleep 2
           done
+          
+          # Re-enable set -e after wait loop
+          set -e
           
           # Then publish a version with rollback description
           echo "📝 Publishing rollback version with description..."
