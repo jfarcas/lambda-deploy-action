@@ -61,44 +61,83 @@ runs:
         echo "inputs.aws-secret-access-key: '${{ inputs.aws-secret-access-key && 'SET' || 'NOT SET' }}'"
         echo "inputs.aws-role-arn: '${{ inputs.aws-role-arn && 'SET' || 'NOT SET' }}'"
         
-        # Set environment variables from inputs, with fallbacks to existing env vars
-        if [[ -n "${{ inputs.aws-access-key-id }}" ]]; then
-          echo "AWS_ACCESS_KEY_ID=${{ inputs.aws-access-key-id }}" >> $GITHUB_ENV
-          export AWS_ACCESS_KEY_ID="${{ inputs.aws-access-key-id }}"
-        fi
-        if [[ -n "${{ inputs.aws-secret-access-key }}" ]]; then
-          echo "AWS_SECRET_ACCESS_KEY=${{ inputs.aws-secret-access-key }}" >> $GITHUB_ENV
-          export AWS_SECRET_ACCESS_KEY="${{ inputs.aws-secret-access-key }}"
-        fi
-        if [[ -n "${{ inputs.aws-role-arn }}" ]]; then
-          echo "AWS_ROLE_ARN=${{ inputs.aws-role-arn }}" >> $GITHUB_ENV
-          export AWS_ROLE_ARN="${{ inputs.aws-role-arn }}"
-        fi
-        if [[ -n "${{ inputs.s3-bucket-name }}" ]]; then
-          echo "S3_BUCKET_NAME=${{ inputs.s3-bucket-name }}" >> $GITHUB_ENV
-          export S3_BUCKET_NAME="${{ inputs.s3-bucket-name }}"
-        fi
-        if [[ -n "${{ inputs.lambda-function-name }}" ]]; then
-          echo "LAMBDA_FUNCTION_NAME=${{ inputs.lambda-function-name }}" >> $GITHUB_ENV
-          export LAMBDA_FUNCTION_NAME="${{ inputs.lambda-function-name }}"
-        fi
-        if [[ -n "${{ inputs.aws-region }}" ]]; then
-          echo "AWS_REGION=${{ inputs.aws-region }}" >> $GITHUB_ENV
-          export AWS_REGION="${{ inputs.aws-region }}"
-        fi
-        if [[ -n "${{ inputs.teams-webhook-url }}" ]]; then
-          echo "TEAMS_WEBHOOK_URL=${{ inputs.teams-webhook-url }}" >> $GITHUB_ENV
-          export TEAMS_WEBHOOK_URL="${{ inputs.teams-webhook-url }}"
-        fi
-        
-        # Debug: Show what we received
-        echo "🔍 Environment variables after processing:"
+        echo "🔍 Environment variables before processing:"
         echo "S3_BUCKET_NAME: ${S3_BUCKET_NAME:-'NOT SET'}"
         echo "LAMBDA_FUNCTION_NAME: ${LAMBDA_FUNCTION_NAME:-'NOT SET'}"
         echo "AWS_REGION: ${AWS_REGION:-'NOT SET'}"
-        echo "AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id && 'SET' || 'NOT SET' }}"
-        echo "AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key && 'SET' || 'NOT SET' }}"
-        echo "AWS_ROLE_ARN: ${{ inputs.aws-role-arn && 'SET' || 'NOT SET' }}"
+        echo "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:+SET}"
+        echo "AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:+SET}"
+        echo "AWS_ROLE_ARN: ${AWS_ROLE_ARN:+SET}"
+        
+        # Set environment variables from inputs, with fallbacks to existing env vars
+        # Priority: inputs > existing environment variables
+        
+        # AWS Credentials
+        if [[ -n "${{ inputs.aws-access-key-id }}" ]]; then
+          echo "AWS_ACCESS_KEY_ID=${{ inputs.aws-access-key-id }}" >> $GITHUB_ENV
+          export AWS_ACCESS_KEY_ID="${{ inputs.aws-access-key-id }}"
+        elif [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
+          export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+        fi
+        
+        if [[ -n "${{ inputs.aws-secret-access-key }}" ]]; then
+          echo "AWS_SECRET_ACCESS_KEY=${{ inputs.aws-secret-access-key }}" >> $GITHUB_ENV
+          export AWS_SECRET_ACCESS_KEY="${{ inputs.aws-secret-access-key }}"
+        elif [[ -n "$AWS_SECRET_ACCESS_KEY" ]]; then
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
+          export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+        fi
+        
+        if [[ -n "${{ inputs.aws-role-arn }}" ]]; then
+          echo "AWS_ROLE_ARN=${{ inputs.aws-role-arn }}" >> $GITHUB_ENV
+          export AWS_ROLE_ARN="${{ inputs.aws-role-arn }}"
+        elif [[ -n "$AWS_ROLE_ARN" ]]; then
+          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> $GITHUB_ENV
+          export AWS_ROLE_ARN="$AWS_ROLE_ARN"
+        fi
+        
+        # Repository Variables
+        if [[ -n "${{ inputs.s3-bucket-name }}" ]]; then
+          echo "S3_BUCKET_NAME=${{ inputs.s3-bucket-name }}" >> $GITHUB_ENV
+          export S3_BUCKET_NAME="${{ inputs.s3-bucket-name }}"
+        elif [[ -n "$S3_BUCKET_NAME" ]]; then
+          echo "S3_BUCKET_NAME=$S3_BUCKET_NAME" >> $GITHUB_ENV
+          export S3_BUCKET_NAME="$S3_BUCKET_NAME"
+        fi
+        
+        if [[ -n "${{ inputs.lambda-function-name }}" ]]; then
+          echo "LAMBDA_FUNCTION_NAME=${{ inputs.lambda-function-name }}" >> $GITHUB_ENV
+          export LAMBDA_FUNCTION_NAME="${{ inputs.lambda-function-name }}"
+        elif [[ -n "$LAMBDA_FUNCTION_NAME" ]]; then
+          echo "LAMBDA_FUNCTION_NAME=$LAMBDA_FUNCTION_NAME" >> $GITHUB_ENV
+          export LAMBDA_FUNCTION_NAME="$LAMBDA_FUNCTION_NAME"
+        fi
+        
+        if [[ -n "${{ inputs.aws-region }}" ]]; then
+          echo "AWS_REGION=${{ inputs.aws-region }}" >> $GITHUB_ENV
+          export AWS_REGION="${{ inputs.aws-region }}"
+        elif [[ -n "$AWS_REGION" ]]; then
+          echo "AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
+          export AWS_REGION="$AWS_REGION"
+        fi
+        
+        if [[ -n "${{ inputs.teams-webhook-url }}" ]]; then
+          echo "TEAMS_WEBHOOK_URL=${{ inputs.teams-webhook-url }}" >> $GITHUB_ENV
+          export TEAMS_WEBHOOK_URL="${{ inputs.teams-webhook-url }}"
+        elif [[ -n "$TEAMS_WEBHOOK_URL" ]]; then
+          echo "TEAMS_WEBHOOK_URL=$TEAMS_WEBHOOK_URL" >> $GITHUB_ENV
+          export TEAMS_WEBHOOK_URL="$TEAMS_WEBHOOK_URL"
+        fi
+        
+        # Debug: Show final values
+        echo "🔍 Final environment variables:"
+        echo "S3_BUCKET_NAME: ${S3_BUCKET_NAME:-'NOT SET'}"
+        echo "LAMBDA_FUNCTION_NAME: ${LAMBDA_FUNCTION_NAME:-'NOT SET'}"
+        echo "AWS_REGION: ${AWS_REGION:-'NOT SET'}"
+        echo "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:+SET}"
+        echo "AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:+SET}"
+        echo "AWS_ROLE_ARN: ${AWS_ROLE_ARN:+SET}"
 
     - name: Install yq for YAML parsing
       shell: bash
@@ -551,35 +590,46 @@ runs:
         echo "🔍 Debug: AWS_AUTH_TYPE=$AWS_AUTH_TYPE"
         echo "🔍 Debug: Environment=${{ steps.determine-env.outputs.environment }}"
         
-        # Validate required credentials are present using inputs directly
+        # Validate required credentials are present using both inputs and env vars
         if [[ "$AWS_AUTH_TYPE" == "oidc" ]]; then
-          if [[ -z "${{ inputs.aws-role-arn }}" ]]; then
-            echo "::error::aws-role-arn input is required for OIDC authentication"
+          if [[ -z "${{ inputs.aws-role-arn }}" ]] && [[ -z "$AWS_ROLE_ARN" ]]; then
+            echo "::error::aws-role-arn input or AWS_ROLE_ARN environment variable is required for OIDC authentication"
             exit 1
           fi
-          echo "✅ OIDC credentials validated (aws-role-arn provided)"
+          echo "✅ OIDC credentials validated"
         elif [[ "$AWS_AUTH_TYPE" == "access_key" ]]; then
-          if [[ -z "${{ inputs.aws-access-key-id }}" ]] || [[ -z "${{ inputs.aws-secret-access-key }}" ]]; then
-            echo "::error::aws-access-key-id and aws-secret-access-key inputs are required for access key authentication"
+          ACCESS_KEY_AVAILABLE=false
+          SECRET_KEY_AVAILABLE=false
+          
+          if [[ -n "${{ inputs.aws-access-key-id }}" ]] || [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
+            ACCESS_KEY_AVAILABLE=true
+          fi
+          if [[ -n "${{ inputs.aws-secret-access-key }}" ]] || [[ -n "$AWS_SECRET_ACCESS_KEY" ]]; then
+            SECRET_KEY_AVAILABLE=true
+          fi
+          
+          if [[ "$ACCESS_KEY_AVAILABLE" == "false" ]] || [[ "$SECRET_KEY_AVAILABLE" == "false" ]]; then
+            echo "::error::AWS access key credentials are required for access key authentication"
+            echo "::error::Provide either inputs (aws-access-key-id, aws-secret-access-key) or environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)"
             exit 1
           fi
-          echo "✅ Access key credentials validated (both keys provided)"
+          echo "✅ Access key credentials validated"
         else
           echo "::warning::Unknown auth type: $AWS_AUTH_TYPE, defaulting to access_key"
           echo "AWS_AUTH_TYPE=access_key" >> $GITHUB_ENV
         fi
         
         # Validate required repository variables
-        if [[ -z "${{ inputs.s3-bucket-name }}" ]]; then
-          echo "::error::s3-bucket-name input is required"
+        if [[ -z "${{ inputs.s3-bucket-name }}" ]] && [[ -z "$S3_BUCKET_NAME" ]]; then
+          echo "::error::s3-bucket-name input or S3_BUCKET_NAME environment variable is required"
           exit 1
         fi
-        if [[ -z "${{ inputs.lambda-function-name }}" ]]; then
-          echo "::error::lambda-function-name input is required"
+        if [[ -z "${{ inputs.lambda-function-name }}" ]] && [[ -z "$LAMBDA_FUNCTION_NAME" ]]; then
+          echo "::error::lambda-function-name input or LAMBDA_FUNCTION_NAME environment variable is required"
           exit 1
         fi
         
-        echo "✅ All required inputs validated"
+        echo "✅ All required inputs/environment variables validated"
 
     - name: Configure AWS Credentials (OIDC)
       if: steps.determine-env.outputs.environment != 'skip' && env.AWS_AUTH_TYPE == 'oidc'
