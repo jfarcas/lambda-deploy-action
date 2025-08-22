@@ -711,13 +711,84 @@ runs:
           exit 0
         fi
         
-        # Check if version already exists in S3
-        if aws s3 ls "s3://$S3_BUCKET/$LAMBDA_FUNCTION/versions/$VERSION/" > /dev/null 2>&1; then
-          echo "::warning::Version $VERSION already exists in S3"
-          echo "::error::Version conflict detected. Use force-deploy: true to override, or increment the version."
-          echo "can-deploy=false" >> $GITHUB_OUTPUT
-          exit 1
-        fi
+        # Environment-specific version conflict checking with correct S3 paths
+        case "$ENV" in
+          "dev"|"development")
+            echo "🔧 Development environment: Always allow deployment"
+            echo "can-deploy=true" >> $GITHUB_OUTPUT
+            ;;
+            
+          "pre"|"staging"|"test")
+            echo "🧪 Staging environment: Check for version conflicts in staging"
+            
+            # Check if version exists in PRE environment specifically (fixed path)
+            PRE_S3_PATH="s3://$S3_BUCKET/$LAMBDA_FUNCTION/environments/pre/versions/$VERSION/"
+            
+            if [[ "$FORCE_DEPLOY" == "true" ]]; then
+              echo "🚨 Force deployment enabled - bypassing version checks"
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            elif aws s3 ls "$PRE_S3_PATH" > /dev/null 2>&1; then
+              echo "⚠️  Version $VERSION already exists in PRE environment"
+              echo "::warning::Version $VERSION exists in staging environment"
+              echo "::notice::Allowing overwrite for staging testing flexibility"
+              echo "::notice::Consider using pre-release versions: $VERSION-rc.1"
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            else
+              echo "✅ Version $VERSION is new in PRE environment"
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            fi
+            ;;
+            
+          "prod"|"production")
+            echo "🏭 Production environment: Strict version conflict checking"
+            
+            # Check if version exists in PROD environment specifically (fixed path)
+            PROD_S3_PATH="s3://$S3_BUCKET/$LAMBDA_FUNCTION/environments/prod/versions/$VERSION/"
+            
+            if [[ "$FORCE_DEPLOY" == "true" ]]; then
+              echo "🚨 Force deployment enabled in PRODUCTION"
+              echo "::warning::Force deployment bypasses all safety checks"
+              echo "::warning::This should only be used for emergency hotfixes"
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            elif aws s3 ls "$PROD_S3_PATH" > /dev/null 2>&1; then
+              echo "❌ Version conflict in PRODUCTION environment"
+              echo "::error::Version $VERSION already exists in production"
+              echo "::error::Production requires unique versions for audit and rollback"
+              echo "::error::Resolution options:"
+              echo "::error::  1. Increment version (recommended)"
+              
+              if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                SUGGESTED_PATCH=$(echo $VERSION | awk -F. '{$NF = $NF + 1; print}' OFS=.)
+                echo "::error::     Next patch: $SUGGESTED_PATCH"
+                echo "::error::     Command: echo 'version = \"$SUGGESTED_PATCH\"' > pyproject.toml"
+              fi
+              
+              echo "::error::  2. Use force-deploy: true (emergency only)"
+              echo "can-deploy=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ Version $VERSION is new in PRODUCTION environment"
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            fi
+            ;;
+            
+          *)
+            echo "🤔 Unknown environment: $ENV (applying production policies)"
+            echo "::warning::Unknown environment, using strict version checking"
+            
+            UNKNOWN_S3_PATH="s3://$S3_BUCKET/$LAMBDA_FUNCTION/environments/$ENV/versions/$VERSION/"
+            
+            if [[ "$FORCE_DEPLOY" == "true" ]]; then
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            elif aws s3 ls "$UNKNOWN_S3_PATH" > /dev/null 2>&1; then
+              echo "::error::Version conflict in $ENV environment"
+              echo "can-deploy=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "can-deploy=true" >> $GITHUB_OUTPUT
+            fi
+            ;;
+        esac
         
         echo "✅ No version conflicts detected"
         echo "can-deploy=true" >> $GITHUB_OUTPUT
@@ -739,10 +810,27 @@ runs:
         # Normalize version (remove 'v' prefix if present)
         NORMALIZED_VERSION=$(echo "$ROLLBACK_VERSION" | sed 's/^v//')
         
-        # Construct S3 key for the rollback version
-        S3_KEY="${LAMBDA_FUNCTION}/${NORMALIZED_VERSION}/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip"
+        # Environment-specific rollback S3 path
+        echo "🔄 Retrieving rollback artifact from $ENV environment..."
+        case "$ENV" in
+          "dev"|"development")
+            echo "::error::Rollback not supported for dev environment"
+            echo "::error::Dev deployments use timestamp-based paths, not versions"
+            echo "::error::Use latest deployment or redeploy instead"
+            exit 1
+            ;;
+          "pre"|"staging"|"test")
+            S3_KEY="$LAMBDA_FUNCTION/environments/pre/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+          "prod"|"production")
+            S3_KEY="$LAMBDA_FUNCTION/environments/prod/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+          *)
+            S3_KEY="$LAMBDA_FUNCTION/environments/$ENV/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+        esac
         
-        echo "🔍 Looking for rollback artifact:"
+        echo "🔍 Looking for rollback artifact in $ENV environment:"
         echo "S3 Bucket: $S3_BUCKET"
         echo "S3 Key: $S3_KEY"
         
@@ -820,23 +908,68 @@ runs:
           echo "  Lambda Function: $LAMBDA_FUNCTION"
           echo "  Package: $ARTIFACT_PATH"
           
-          # Generate unique S3 key for this deployment
+          # Generate environment-specific S3 key for this deployment
           TIMESTAMP=$(date +%s)
           S3_KEY_BASE="$LAMBDA_FUNCTION"
           
-          # Upload to S3 with retry logic
-          echo "📦 Uploading package to S3..."
-          if [[ "$ENV" == "dev" ]]; then
-            # For dev, use timestamp to avoid conflicts
-            S3_KEY="$S3_KEY_BASE/dev/$TIMESTAMP/lambda.zip"
-            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP"
-          else
-            # For pre/prod, use versioning
-            S3_KEY="$S3_KEY_BASE/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
-            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" --metadata "environment=$ENV,version=$VERSION"
-            # Also update latest for pre/prod
-            aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY_BASE/latest/lambda.zip" --metadata "environment=$ENV,version=$VERSION"
-          fi
+          # Environment-specific S3 paths with isolation
+          echo "📦 Uploading package to S3 with environment isolation..."
+          case "$ENV" in
+            "dev"|"development")
+              # Dev: Use timestamp-based paths for rapid iteration
+              S3_KEY="$S3_KEY_BASE/environments/dev/deployments/$TIMESTAMP/lambda.zip"
+              LATEST_KEY="$S3_KEY_BASE/environments/dev/latest/lambda.zip"
+              
+              echo "🔧 Dev deployment with timestamp isolation"
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" \
+                --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP,commit=$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+              
+              # Update dev latest
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$LATEST_KEY" \
+                --metadata "environment=$ENV,version=$VERSION,timestamp=$TIMESTAMP"
+              ;;
+              
+            "pre"|"staging"|"test")
+              # Pre: Environment-specific versioned paths
+              S3_KEY="$S3_KEY_BASE/environments/pre/versions/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
+              LATEST_KEY="$S3_KEY_BASE/environments/pre/latest/lambda.zip"
+              
+              echo "🧪 Pre deployment with environment isolation"
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" \
+                --metadata "environment=$ENV,version=$VERSION,deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ),commit=$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+              
+              # Update pre latest
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$LATEST_KEY" \
+                --metadata "environment=$ENV,version=$VERSION"
+              ;;
+              
+            "prod"|"production")
+              # Prod: Environment-specific versioned paths with strict metadata
+              S3_KEY="$S3_KEY_BASE/environments/prod/versions/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
+              LATEST_KEY="$S3_KEY_BASE/environments/prod/latest/lambda.zip"
+              
+              echo "🏭 Prod deployment with strict environment isolation"
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" \
+                --metadata "environment=$ENV,version=$VERSION,deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ),commit=$(git rev-parse HEAD 2>/dev/null || echo 'unknown'),branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+              
+              # Update prod latest
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$LATEST_KEY" \
+                --metadata "environment=$ENV,version=$VERSION"
+              ;;
+              
+            *)
+              # Unknown environment: Use environment-specific path
+              S3_KEY="$S3_KEY_BASE/environments/$ENV/versions/$VERSION/$LAMBDA_FUNCTION-$VERSION.zip"
+              LATEST_KEY="$S3_KEY_BASE/environments/$ENV/latest/lambda.zip"
+              
+              echo "🤔 Unknown environment deployment with isolation"
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$S3_KEY" \
+                --metadata "environment=$ENV,version=$VERSION"
+              
+              aws s3 cp "$ARTIFACT_PATH" "s3://$S3_BUCKET/$LATEST_KEY" \
+                --metadata "environment=$ENV,version=$VERSION"
+              ;;
+          esac
           
           echo "✅ Package uploaded to s3://$S3_BUCKET/$S3_KEY"
         fi
@@ -1335,13 +1468,32 @@ runs:
         # Normalize version (remove 'v' prefix if present)
         NORMALIZED_VERSION=$(echo "$ROLLBACK_VERSION" | sed 's/^v//')
         
-        # Construct S3 key for the rollback version
-        S3_KEY="${LAMBDA_FUNCTION}/${NORMALIZED_VERSION}/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip"
+        # Environment-specific rollback S3 path for auto-rollback
+        echo "🔄 Auto-rollback: Looking for version in $ENV environment..."
+        case "$ENV" in
+          "dev"|"development")
+            echo "::error::Auto-rollback not supported for dev environment"
+            echo "::error::Dev deployments use timestamp-based paths, not versions"
+            exit 1
+            ;;
+          "pre"|"staging"|"test")
+            S3_KEY="$LAMBDA_FUNCTION/environments/pre/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+          "prod"|"production")
+            S3_KEY="$LAMBDA_FUNCTION/environments/prod/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+          *)
+            S3_KEY="$LAMBDA_FUNCTION/environments/$ENV/versions/$NORMALIZED_VERSION/$LAMBDA_FUNCTION-$NORMALIZED_VERSION.zip"
+            ;;
+        esac
         
-        echo "🔍 Checking if rollback version exists in S3..."
+        echo "🔍 Checking if rollback version exists in $ENV environment..."
+        echo "S3 location: s3://$S3_BUCKET/$S3_KEY"
         if ! aws s3api head-object --bucket "$S3_BUCKET" --key "$S3_KEY" > /dev/null 2>&1; then
-          echo "::error::Rollback version $ROLLBACK_VERSION not found in S3"
+          echo "::error::Rollback version $ROLLBACK_VERSION not found in $ENV environment"
           echo "::error::S3 location: s3://$S3_BUCKET/$S3_KEY"
+          echo "::error::Available versions in $ENV:"
+          aws s3 ls "s3://$S3_BUCKET/$LAMBDA_FUNCTION/environments/$ENV/versions/" --recursive | grep "\.zip$" | head -10 || echo "No versions found"
           exit 1
         fi
         
