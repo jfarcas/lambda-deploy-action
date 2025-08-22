@@ -10,6 +10,8 @@ detect_version() {
     if [[ -n "$input_version" ]]; then
         echo "Using input version: $input_version"
         echo "version=$input_version" >> "$GITHUB_OUTPUT"
+        echo "DETECTED_VERSION=$input_version" >> "$GITHUB_ENV"
+        export DETECTED_VERSION="$input_version"
         return 0
     fi
     
@@ -109,6 +111,9 @@ detect_version() {
     
     # Export for use by other scripts
     export DETECTED_VERSION="$version"
+    
+    # Also set in GitHub environment for persistence across steps
+    echo "DETECTED_VERSION=$version" >> "$GITHUB_ENV"
 }
 
 # Run if script is executed directly

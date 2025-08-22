@@ -189,6 +189,8 @@ runs:
       id: deploy
       if: steps.version-check.outputs.can-deploy == 'true' || steps.deployment-mode.outputs.deployment-mode == 'rollback'
       shell: bash
+      env:
+        ROLLBACK_VERSION: ${{ steps.retrieve-rollback.outputs.version }}
       run: |
         source ${{ github.action_path }}/scripts/deployer.sh
         deploy_to_lambda "${{ steps.deployment-mode.outputs.deployment-mode }}" \
