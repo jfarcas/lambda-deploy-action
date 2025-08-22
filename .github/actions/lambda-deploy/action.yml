@@ -1002,13 +1002,25 @@ runs:
         echo "📝 Version description: $VERSION_DESCRIPTION"
         
         while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
+          # First update the function code without publishing
           if aws lambda update-function-code \
             --function-name "$LAMBDA_FUNCTION" \
             --s3-bucket "$S3_BUCKET" \
-            --s3-key "$S3_KEY" \
-            --publish \
-            --description "$VERSION_DESCRIPTION" > /tmp/lambda-update.json; then
-            break
+            --s3-key "$S3_KEY" > /tmp/lambda-update.json; then
+            
+            # Then publish a version with description
+            echo "📝 Publishing version with description..."
+            if aws lambda publish-version \
+              --function-name "$LAMBDA_FUNCTION" \
+              --description "$VERSION_DESCRIPTION" > /tmp/lambda-publish.json; then
+              
+              # Use the published version info
+              cp /tmp/lambda-publish.json /tmp/lambda-update.json
+              break
+            else
+              echo "::warning::Failed to publish version with description, retrying..."
+              ((RETRY_COUNT++))
+            fi
           else
             ((RETRY_COUNT++))
             if [[ $RETRY_COUNT -eq $MAX_RETRIES ]]; then
@@ -1567,30 +1579,39 @@ runs:
         
         echo "📝 Rollback description: $ROLLBACK_DESCRIPTION"
         
+        # First update function code without publishing
         if aws lambda update-function-code \
           --function-name "$LAMBDA_FUNCTION" \
           --s3-bucket "$S3_BUCKET" \
-          --s3-key "$S3_KEY" \
-          --publish \
-          --description "$ROLLBACK_DESCRIPTION" > /tmp/rollback-update.json; then
+          --s3-key "$S3_KEY" > /tmp/rollback-update-temp.json; then
           
-          # Get rollback deployment info
-          LAMBDA_VERSION=$(jq -r '.Version' /tmp/rollback-update.json)
-          LAMBDA_SIZE=$(jq -r '.CodeSize' /tmp/rollback-update.json)
-          
-          # Tag the rollback
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          TIMESTAMP=$(date +%s)
-          TAGS="Version=$NORMALIZED_VERSION,Environment=$ENV,DeploymentType=auto-rollback,RollbackBy=system,RollbackTimestamp=$TIMESTAMP,RollbackReason=deployment-failure"
-          
-          aws lambda tag-resource \
-            --resource "arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION" \
-            --tags "$TAGS" || echo "::warning::Failed to tag rollback"
-          
-          echo "✅ Auto-rollback completed successfully!"
-          echo "  Rolled back to Version: $NORMALIZED_VERSION"
-          echo "  Lambda Version: $LAMBDA_VERSION"
-          echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
+          # Then publish a version with rollback description
+          echo "📝 Publishing rollback version with description..."
+          if aws lambda publish-version \
+            --function-name "$LAMBDA_FUNCTION" \
+            --description "$ROLLBACK_DESCRIPTION" > /tmp/rollback-update.json; then
+            
+            # Get rollback deployment info
+            LAMBDA_VERSION=$(jq -r '.Version' /tmp/rollback-update.json)
+            LAMBDA_SIZE=$(jq -r '.CodeSize' /tmp/rollback-update.json)
+            
+            # Tag the rollback
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            TIMESTAMP=$(date +%s)
+            TAGS="Version=$NORMALIZED_VERSION,Environment=$ENV,DeploymentType=auto-rollback,RollbackBy=system,RollbackTimestamp=$TIMESTAMP,RollbackReason=deployment-failure"
+            
+            aws lambda tag-resource \
+              --resource "arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION" \
+              --tags "$TAGS" || echo "::warning::Failed to tag rollback"
+            
+            echo "✅ Auto-rollback completed successfully!"
+            echo "  Rolled back to Version: $NORMALIZED_VERSION"
+            echo "  Lambda Version: $LAMBDA_VERSION"
+            echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
+          else
+            echo "::error::Failed to publish rollback version with description"
+            exit 1
+          fi
           echo "  S3 Location: s3://$S3_BUCKET/$S3_KEY"
           
           # Set outputs
