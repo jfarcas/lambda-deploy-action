@@ -17,6 +17,10 @@ inputs:
     description: 'Force deployment even if version already exists'
     required: false
     default: 'false'
+  debug:
+    description: 'Enable debug output for troubleshooting'
+    required: false
+    default: 'false'
 
 outputs:
   deployed-version:
@@ -40,15 +44,17 @@ runs:
       run: |
         echo "🔍 Validating required environment variables..."
         
-        # Debug: Show what environment variables we actually received
-        echo "🐛 DEBUG: Environment variables received by composite action:"
-        echo "S3_BUCKET_NAME: '${S3_BUCKET_NAME:-NOT_SET}'"
-        echo "LAMBDA_FUNCTION_NAME: '${LAMBDA_FUNCTION_NAME:-NOT_SET}'"
-        echo "AWS_REGION: '${AWS_REGION:-NOT_SET}'"
-        echo "AWS_ACCESS_KEY_ID: '${AWS_ACCESS_KEY_ID:+SET}'"
-        echo "AWS_SECRET_ACCESS_KEY: '${AWS_SECRET_ACCESS_KEY:+SET}'"
-        echo "AWS_ROLE_ARN: '${AWS_ROLE_ARN:+SET}'"
-        echo "TEAMS_WEBHOOK_URL: '${TEAMS_WEBHOOK_URL:+SET}'"
+        # Optional debug output
+        if [[ "${{ inputs.debug }}" == "true" ]]; then
+          echo "🐛 DEBUG: Environment variables received by composite action:"
+          echo "S3_BUCKET_NAME: '${S3_BUCKET_NAME:-NOT_SET}'"
+          echo "LAMBDA_FUNCTION_NAME: '${LAMBDA_FUNCTION_NAME:-NOT_SET}'"
+          echo "AWS_REGION: '${AWS_REGION:-NOT_SET}'"
+          echo "AWS_ACCESS_KEY_ID: '${AWS_ACCESS_KEY_ID:+SET}'"
+          echo "AWS_SECRET_ACCESS_KEY: '${AWS_SECRET_ACCESS_KEY:+SET}'"
+          echo "AWS_ROLE_ARN: '${AWS_ROLE_ARN:+SET}'"
+          echo "TEAMS_WEBHOOK_URL: '${TEAMS_WEBHOOK_URL:+SET}'"
+        fi
         
         # Check required environment variables
         MISSING_VARS=()

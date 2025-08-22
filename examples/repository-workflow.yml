@@ -24,6 +24,11 @@ on:
         required: false
         default: false
         type: boolean
+      debug:
+        description: 'Enable debug output for troubleshooting'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -37,6 +42,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Debug Environment Variables (if enabled)
+        if: inputs.debug == true
+        run: |
+          echo "🐛 DEBUG: Variables and secrets available at job level:"
+          echo "vars.S3_BUCKET_NAME: '${{ vars.S3_BUCKET_NAME }}'"
+          echo "vars.LAMBDA_FUNCTION_NAME: '${{ vars.LAMBDA_FUNCTION_NAME }}'"
+          echo "vars.AWS_REGION: '${{ vars.AWS_REGION }}'"
+          echo "secrets.AWS_ACCESS_KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.AWS_SECRET_ACCESS_KEY: '${{ secrets.AWS_SECRET_ACCESS_KEY && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.AWS_ROLE_ARN: '${{ secrets.AWS_ROLE_ARN && 'SET' || 'NOT_SET' }}'"
+          echo "secrets.TEAMS_WEBHOOK_URL: '${{ secrets.TEAMS_WEBHOOK_URL && 'SET' || 'NOT_SET' }}'"
 
       - name: Deploy Lambda Function
         uses: YourOrg/devops-actions/.github/actions/lambda-deploy@lambda-deploy/v1.0.0
@@ -60,6 +77,7 @@ jobs:
           config-file: 'lambda-deploy-config.yml'
           environment: ${{ inputs.environment || 'auto' }}
           force-deploy: ${{ inputs.force_deploy || 'false' }}
+          debug: ${{ inputs.debug || 'false' }}
 
       - name: Post-deployment actions
         if: success()
