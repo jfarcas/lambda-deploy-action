@@ -927,15 +927,96 @@ runs:
               echo "📋 Lambda response:"
               cat /tmp/test-response.json | jq . 2>/dev/null || cat /tmp/test-response.json
               
+              # Get expected response validation from config
+              EXPECTED_STATUS_CODE=$(yq eval '.deployment.health_check.expected_status_code // 200' "$CONFIG_FILE")
+              EXPECTED_RESPONSE_CONTAINS=$(yq eval '.deployment.health_check.expected_response_contains // null' "$CONFIG_FILE")
+              EXPECTED_ERROR_MESSAGE=$(yq eval '.deployment.health_check.expected_error_message // null' "$CONFIG_FILE")
+              
+              echo "🔍 Validating response..."
+              VALIDATION_PASSED=true
+              
               # Check if response contains an error
               if grep -q '"errorMessage"' /tmp/test-response.json 2>/dev/null; then
-                echo "::warning::Lambda function returned an error in response"
-                echo "::warning::Function deployed successfully but may have runtime issues"
+                ERROR_MESSAGE=$(jq -r '.errorMessage // "Unknown error"' /tmp/test-response.json 2>/dev/null)
+                ERROR_TYPE=$(jq -r '.errorType // "Unknown"' /tmp/test-response.json 2>/dev/null)
+                
+                if [[ "$EXPECTED_ERROR_MESSAGE" != "null" ]]; then
+                  echo "Expected error response, checking error message..."
+                  if echo "$ERROR_MESSAGE" | grep -q "$EXPECTED_ERROR_MESSAGE"; then
+                    echo "✅ Expected error message found: $ERROR_MESSAGE"
+                  else
+                    echo "::warning::Error message doesn't match expected pattern"
+                    echo "::warning::Expected: $EXPECTED_ERROR_MESSAGE"
+                    echo "::warning::Actual: $ERROR_MESSAGE"
+                    VALIDATION_PASSED=false
+                  fi
+                else
+                  echo "::warning::Lambda function returned an error: $ERROR_TYPE - $ERROR_MESSAGE"
+                  echo "::warning::Function deployed successfully but has runtime issues"
+                  VALIDATION_PASSED=false
+                fi
               else
-                echo "✅ Health check passed - function is working correctly"
+                # No error in response, validate success response
+                echo "No error in response, validating success response..."
+                
+                # Check status code if response has one
+                if jq -e '.statusCode' /tmp/test-response.json > /dev/null 2>&1; then
+                  ACTUAL_STATUS_CODE=$(jq -r '.statusCode' /tmp/test-response.json)
+                  echo "Response status code: $ACTUAL_STATUS_CODE"
+                  
+                  if [[ "$ACTUAL_STATUS_CODE" != "$EXPECTED_STATUS_CODE" ]]; then
+                    echo "::warning::Status code mismatch"
+                    echo "::warning::Expected: $EXPECTED_STATUS_CODE"
+                    echo "::warning::Actual: $ACTUAL_STATUS_CODE"
+                    VALIDATION_PASSED=false
+                  else
+                    echo "✅ Status code matches expected: $EXPECTED_STATUS_CODE"
+                  fi
+                fi
+                
+                # Check if response contains expected content
+                if [[ "$EXPECTED_RESPONSE_CONTAINS" != "null" ]]; then
+                  echo "Checking if response contains: $EXPECTED_RESPONSE_CONTAINS"
+                  if grep -q "$EXPECTED_RESPONSE_CONTAINS" /tmp/test-response.json; then
+                    echo "✅ Response contains expected content"
+                  else
+                    echo "::warning::Response doesn't contain expected content: $EXPECTED_RESPONSE_CONTAINS"
+                    VALIDATION_PASSED=false
+                  fi
+                fi
+                
+                # Check response body if it exists
+                if jq -e '.body' /tmp/test-response.json > /dev/null 2>&1; then
+                  RESPONSE_BODY=$(jq -r '.body' /tmp/test-response.json)
+                  echo "Response body: $RESPONSE_BODY"
+                  
+                  # Try to parse body as JSON if it looks like JSON
+                  if echo "$RESPONSE_BODY" | jq . > /dev/null 2>&1; then
+                    echo "Response body is valid JSON"
+                    PARSED_BODY=$(echo "$RESPONSE_BODY" | jq .)
+                    echo "Parsed body: $PARSED_BODY"
+                    
+                    # Additional validation on parsed body if needed
+                    if [[ "$EXPECTED_RESPONSE_CONTAINS" != "null" ]]; then
+                      if echo "$PARSED_BODY" | grep -q "$EXPECTED_RESPONSE_CONTAINS"; then
+                        echo "✅ Parsed body contains expected content"
+                      fi
+                    fi
+                  fi
+                fi
               fi
+              
+              # Final validation result
+              if [[ "$VALIDATION_PASSED" == "true" ]]; then
+                echo "✅ Health check passed - function is working correctly"
+              else
+                echo "::warning::Health check validation failed - function may have issues"
+                echo "::warning::Function deployed successfully but response validation failed"
+              fi
+              
             else
               echo "::warning::No response file generated"
+              VALIDATION_PASSED=false
             fi
             
             # Show invocation metadata
