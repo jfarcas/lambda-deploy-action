@@ -18,11 +18,8 @@ retry_with_backoff() {
     while (( attempt <= max_attempts )); do
         echo "Attempt $attempt/$max_attempts: ${command[*]}" >&2
         
-        echo "🔍 DEBUG: About to execute command: ${command[*]}" >&2
-        
         if "${command[@]}"; then
             echo "✅ Command succeeded on attempt $attempt" >&2
-            echo "🔍 DEBUG: Command completed successfully" >&2
             return 0
         fi
         
@@ -65,7 +62,7 @@ wait_for_lambda_ready() {
     local max_wait_time="${2:-120}"  # seconds
     local check_interval="${3:-2}"   # seconds
     
-    echo "⏳ Waiting for Lambda function '$function_name' to be ready..."
+    echo "⏳ Waiting for Lambda function '$function_name' to be ready..." >&2
     
     local elapsed=0
     local last_state=""
@@ -82,22 +79,22 @@ wait_for_lambda_ready() {
             
             # Only log if state changed
             if [[ "$state" != "$last_state" || "$update_status" != "$last_update_status" ]]; then
-                echo "  State: $state, LastUpdateStatus: $update_status (${elapsed}s elapsed)"
+                echo "  State: $state, LastUpdateStatus: $update_status (${elapsed}s elapsed)" >&2
                 last_state="$state"
                 last_update_status="$update_status"
             fi
             
             if [[ "$state" == "Active" && "$update_status" == "Successful" ]]; then
-                echo "✅ Lambda function is ready"
+                echo "✅ Lambda function is ready" >&2
                 return 0
             elif [[ "$update_status" == "Failed" ]]; then
-                echo "::error::Lambda function update failed"
-                echo "Function details:"
-                echo "$function_info" | /usr/bin/jq '.Configuration'
+                echo "::error::Lambda function update failed" >&2
+                echo "Function details:" >&2
+                echo "$function_info" | /usr/bin/jq '.Configuration' >&2
                 return 1
             fi
         else
-            echo "::warning::Failed to get function status, continuing..."
+            echo "::warning::Failed to get function status, continuing..." >&2
         fi
         
         sleep "$check_interval"
@@ -105,12 +102,12 @@ wait_for_lambda_ready() {
         
         # Progress indicator every 20 seconds
         if (( elapsed % 20 == 0 )); then
-            echo "  ⏱️  Still waiting... (${elapsed}s/${max_wait_time}s)"
+            echo "  ⏱️  Still waiting... (${elapsed}s/${max_wait_time}s)" >&2
         fi
     done
     
-    echo "::warning::Timeout waiting for Lambda function to be ready after ${max_wait_time}s"
-    echo "::warning::Current state: $last_state, LastUpdateStatus: $last_update_status"
+    echo "::warning::Timeout waiting for Lambda function to be ready after ${max_wait_time}s" >&2
+    echo "::warning::Current state: $last_state, LastUpdateStatus: $last_update_status" >&2
     return 1
 }
 
