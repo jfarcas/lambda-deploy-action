@@ -872,7 +872,7 @@ runs:
         echo "deployment-validated=true" >> $GITHUB_OUTPUT
 
     - name: Send Teams Notification
-      if: steps.determine-env.outputs.environment == 'prod' && env.TEAMS_WEBHOOK_URL != '' && steps.validate-deployment.outputs.deployment-validated == 'true'
+      if: steps.determine-env.outputs.environment == 'dev' && env.TEAMS_WEBHOOK_URL != '' && steps.validate-deployment.outputs.deployment-validated == 'true'
       shell: bash
       run: |
         set -e
