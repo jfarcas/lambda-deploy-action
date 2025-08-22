@@ -1,5 +1,30 @@
 name: 'Reusable Lambda Deploy Workflow'
 
+# Dynamic run name showing deployment context
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch' && 
+    format('🚀 Manual Deploy to {0} | {1} | {2}', 
+      inputs.environment || 'auto', 
+      inputs.version || 'auto-version',
+      github.event.head_commit.message || github.ref_name
+    ) ||
+    github.event_name == 'push' &&
+    format('📦 Push Deploy | {0} | {1}',
+      github.ref_name,
+      github.event.head_commit.message
+    ) ||
+    github.event_name == 'pull_request' &&
+    format('🔍 PR Deploy | #{0} | {1}',
+      github.event.number,
+      github.event.pull_request.title
+    ) ||
+    format('🔄 Deploy | {0} | {1}',
+      github.ref_name,
+      github.sha
+    )
+  }}
+
 on:
   workflow_call:
     inputs:
