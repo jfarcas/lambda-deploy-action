@@ -56,32 +56,46 @@ Secure SSH-based deployment for traditional servers and containerized applicatio
 github-actions-collection/
 ├── actions/
 │   ├── lambda-deploy/
-│   │   ├── action.yml
-│   │   ├── README.md
-│   │   ├── CHANGELOG.md
-│   │   ├── docs/
-│   │   └── examples/
-│   └── ssh-deploy/
-│       ├── action.yml
-│       ├── README.md
-│       ├── CHANGELOG.md
-│       ├── docs/
-│       └── examples/
-├── .github/
-│   └── workflows/
-├── README.md (this file)
-└── CONTRIBUTING.md
+│   │   ├── action.yml                    # Action definition
+│   │   ├── lambda-deploy-reusable.yml    # Reusable workflow
+│   │   ├── README.md                     # Action documentation
+│   │   ├── CHANGELOG.md                  # Version history
+│   │   ├── CONTRIBUTING.md               # Contribution guide
+│   │   ├── docs/                         # Comprehensive docs
+│   │   └── examples/                     # Configuration examples
+│   └── ssh-deploy/                       # Future SSH action
+├── README.md                             # This file
+├── CONTRIBUTING.md                       # Repository guidelines
+└── LICENSE                               # MIT license
 ```
 
 ## 🎯 Usage Patterns
 
-### Single Action Usage
+### Direct Action Usage (Recommended)
 ```yaml
-# Use specific action
-- uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.0.0
+# Use the action directly in your workflow
+- name: Deploy Lambda
+  uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.0.0
+  with:
+    config-file: "lambda-deploy-config.yml"
+    environment: "prod"
 ```
 
-### Multi-Action Workflow
+### Reusable Workflow
+```yaml
+# Use the included reusable workflow
+jobs:
+  deploy:
+    uses: YourOrg/github-actions-collection/actions/lambda-deploy/lambda-deploy-reusable.yml@v1.0.0
+    with:
+      config-file: "lambda-deploy-config.yml"
+      environment: "prod"
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # ... other secrets
+```
+
+### Multi-Action Workflow (Future)
 ```yaml
 # Deploy Lambda function
 - name: Deploy Lambda

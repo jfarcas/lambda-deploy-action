@@ -19,6 +19,38 @@ Real-world configuration examples for different use cases and scenarios.
 ### GitHub Actions Workflows
 - **[workflow-basic.yml](workflow-basic.yml)** - Simple workflow with manual and auto deployment
 - **[workflow-advanced.yml](workflow-advanced.yml)** - Advanced workflow with rollback and multiple environments
+- **[workflow-reusable.yml](workflow-reusable.yml)** - Using the included reusable workflow
+
+## 🎯 Usage Patterns
+
+### Pattern 1: Direct Action Usage (Recommended)
+```yaml
+# Direct use of the action in your workflow
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy Lambda
+        uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.0.0
+        with:
+          config-file: "lambda-deploy-config.yml"
+          environment: ${{ inputs.environment }}
+```
+
+### Pattern 2: Reusable Workflow
+```yaml
+# Use the included reusable workflow
+jobs:
+  deploy:
+    uses: YourOrg/github-actions-collection/actions/lambda-deploy/lambda-deploy-reusable.yml@v1.0.0
+    with:
+      config-file: "lambda-deploy-config.yml"
+      environment: ${{ inputs.environment }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # ... other secrets
+```
 
 ## 🎯 Use Case Examples
 
@@ -159,23 +191,28 @@ deployment:
 
 ## 📚 How to Use Examples
 
-### 1. Choose Base Configuration
+### 1. Choose Usage Pattern
+Decide between direct action usage or reusable workflow:
+- **Direct Action:** More control, custom workflow structure
+- **Reusable Workflow:** Simplified setup, pre-configured features
+
+### 2. Choose Base Configuration
 Start with a basic example that matches your runtime and use case.
 
-### 2. Customize for Your Needs
+### 3. Customize for Your Needs
 Modify the configuration based on your specific requirements:
 - Update project name and runtime version
 - Configure environments and trigger branches
 - Set up health checks and notifications
 - Add custom build commands
 
-### 3. Test Configuration
+### 4. Test Configuration
 1. Copy configuration to your repository as `lambda-deploy-config.yml`
 2. Set up required environment variables
 3. Test with dev environment first
 4. Gradually roll out to staging and production
 
-### 4. Iterate and Improve
+### 5. Iterate and Improve
 - Monitor deployment logs and metrics
 - Adjust health check parameters
 - Optimize build commands

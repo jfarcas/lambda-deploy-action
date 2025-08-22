@@ -1,0 +1,49 @@
+# Reusable Workflow Example for Lambda Deploy Action
+# Uses the included reusable workflow for simplified setup
+
+name: Deploy Lambda Function (Reusable)
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, pre, prod]
+        default: 'dev'
+      force-deploy:
+        description: 'Force deployment (bypass version conflicts)'
+        required: false
+        type: boolean
+        default: false
+      rollback_version:
+        description: 'Version to rollback to (leave empty for normal deployment)'
+        required: false
+        type: string
+      debug:
+        description: 'Enable debug output'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    uses: YourOrg/github-actions-collection/actions/lambda-deploy/lambda-deploy-reusable.yml@v1.0.0
+    with:
+      config-file: "lambda-deploy-config.yml"
+      environment: ${{ inputs.environment || 'auto' }}
+      force-deploy: ${{ inputs.force-deploy || false }}
+      rollback-to-version: ${{ inputs.rollback_version }}
+      debug: ${{ inputs.debug || false }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+      LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}

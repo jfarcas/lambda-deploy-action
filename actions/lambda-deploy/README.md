@@ -13,51 +13,9 @@ A production-ready GitHub Action for deploying AWS Lambda functions with compreh
 - **Rich Deployment Context** - Environment-specific Lambda version descriptions and aliases
 - **Enterprise Security** - Comprehensive input validation and audit trails
 
-## 📋 Quick Start
+## 📋 Usage Options
 
-### 1. Repository Setup
-
-Create a configuration file in your repository:
-
-**`lambda-deploy-config.yml`**
-```yaml
-project:
-  name: "my-lambda-function"
-  runtime: "python"
-  versions:
-    python: "3.9"
-
-build:
-  commands:
-    install: "pip install -r requirements.txt"
-    build: "auto"
-
-environments:
-  dev:
-    trigger_branches: ["main", "feature/**"]
-    aws:
-      auth_type: "access_key"
-  
-  pre:
-    trigger_branches: ["main"]
-    aws:
-      auth_type: "access_key"
-  
-  prod:
-    aws:
-      auth_type: "access_key"
-
-deployment:
-  health_check:
-    enabled: true
-    test_payload_object:
-      name: "Test"
-      source: "deployment-validation"
-    expected_status_code: 200
-    expected_response_contains: "success"
-```
-
-### 2. Workflow Setup
+### Option 1: Direct Action Usage (Recommended)
 
 Create `.github/workflows/lambda-deploy.yml`:
 
@@ -112,7 +70,84 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
 ```
 
-### 3. Repository Configuration
+### Option 2: Reusable Workflow
+
+Use the included reusable workflow for simplified setup:
+
+```yaml
+name: Deploy Lambda Function
+
+on:
+  push:
+    branches: [main, feature/**]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options: [dev, pre, prod]
+        default: 'dev'
+
+jobs:
+  deploy:
+    uses: YourOrg/github-actions-collection/actions/lambda-deploy/lambda-deploy-reusable.yml@v1.0.0
+    with:
+      config-file: "lambda-deploy-config.yml"
+      environment: ${{ inputs.environment || 'auto' }}
+      force-deploy: ${{ inputs.force-deploy || false }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+      LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+```
+
+## 🔧 Repository Setup
+
+### 1. Configuration File
+
+Create `lambda-deploy-config.yml` in your repository root:
+
+```yaml
+project:
+  name: "my-lambda-function"
+  runtime: "python"
+  versions:
+    python: "3.9"
+
+build:
+  commands:
+    install: "pip install -r requirements.txt"
+    build: "auto"
+
+environments:
+  dev:
+    trigger_branches: ["main", "feature/**"]
+    aws:
+      auth_type: "access_key"
+  
+  pre:
+    trigger_branches: ["main"]
+    aws:
+      auth_type: "access_key"
+  
+  prod:
+    aws:
+      auth_type: "access_key"
+
+deployment:
+  health_check:
+    enabled: true
+    test_payload_object:
+      name: "Test"
+      source: "deployment-validation"
+    expected_status_code: 200
+    expected_response_contains: "success"
+```
+
+### 2. Repository Configuration
 
 Set up these repository secrets and variables:
 
@@ -172,7 +207,7 @@ Aliases:
 
 - **[Complete Documentation](docs/)** - Comprehensive guides and references
 - **[Quick Start Guide](docs/quick-start.md)** - Get started in 5 minutes
-- **[Configuration Reference](docs/configuration-schema.md)** - Complete configuration options
+- **[Configuration Reference](docs/configuration-reference.md)** - Complete configuration options
 - **[Examples](examples/)** - Real-world configuration examples
 
 ## 🔧 Advanced Features
