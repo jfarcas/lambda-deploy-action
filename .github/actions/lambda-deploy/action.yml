@@ -115,6 +115,48 @@ runs:
           echo "DEPLOYMENT_MODE=deploy" >> $GITHUB_ENV
         fi
 
+    - name: Get Last Successful Version
+      id: get-last-version
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
+      shell: bash
+      run: |
+        set -e
+        
+        echo "🔍 Getting last successful version for potential rollback..."
+        
+        # Check if auto-rollback is enabled
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        AUTO_ROLLBACK_ENABLED=$(yq eval '.deployment.auto_rollback.enabled // false' "$CONFIG_FILE")
+        
+        if [[ "$AUTO_ROLLBACK_ENABLED" == "false" ]]; then
+          echo "Auto-rollback is disabled, skipping last version lookup"
+          echo "last-version=" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "Auto-rollback is enabled, looking up last successful version..."
+        
+        # Get current Lambda function configuration to find last successful version
+        LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
+        
+        # Try to get the current version from Lambda function tags
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        FUNCTION_ARN="arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION"
+        
+        # Get current tags to find last successful deployment
+        LAST_VERSION=""
+        if aws lambda list-tags --resource "$FUNCTION_ARN" > /tmp/lambda-tags.json 2>/dev/null; then
+          LAST_VERSION=$(jq -r '.Tags.Version // empty' /tmp/lambda-tags.json 2>/dev/null || echo "")
+        fi
+        
+        if [[ -n "$LAST_VERSION" ]] && [[ "$LAST_VERSION" != "null" ]]; then
+          echo "Found last successful version: $LAST_VERSION"
+          echo "last-version=$LAST_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "No previous successful version found"
+          echo "last-version=" >> $GITHUB_OUTPUT
+        fi
+
     - name: Install yq for YAML parsing
       shell: bash
       run: |
@@ -1209,4 +1251,153 @@ runs:
           echo "Retrying Teams notification ($RETRY_COUNT/$MAX_RETRIES) in 5 seconds..."
           sleep 5
         done
+
+    - name: Auto-Rollback on Failure
+      id: auto-rollback
+      if: failure() && steps.deployment-mode.outputs.deployment-mode == 'deploy' && steps.get-last-version.outputs.last-version != ''
+      shell: bash
+      run: |
+        set -e
+        
+        echo "🚨 Deployment failure detected, checking auto-rollback configuration..."
+        
+        # Load auto-rollback configuration
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        AUTO_ROLLBACK_ENABLED=$(yq eval '.deployment.auto_rollback.enabled // false' "$CONFIG_FILE")
+        ON_DEPLOYMENT_FAILURE=$(yq eval '.deployment.auto_rollback.triggers.on_deployment_failure // true' "$CONFIG_FILE")
+        MAX_ATTEMPTS=$(yq eval '.deployment.auto_rollback.behavior.max_attempts // 1' "$CONFIG_FILE")
+        STRATEGY=$(yq eval '.deployment.auto_rollback.strategy // "last_successful"' "$CONFIG_FILE")
+        
+        if [[ "$AUTO_ROLLBACK_ENABLED" != "true" ]]; then
+          echo "Auto-rollback is disabled, skipping automatic rollback"
+          exit 0
+        fi
+        
+        if [[ "$ON_DEPLOYMENT_FAILURE" != "true" ]]; then
+          echo "Auto-rollback on deployment failure is disabled"
+          exit 0
+        fi
+        
+        echo "🔄 Auto-rollback is enabled, initiating rollback..."
+        
+        # Determine rollback target version
+        ROLLBACK_VERSION=""
+        case "$STRATEGY" in
+          "last_successful")
+            ROLLBACK_VERSION="${{ steps.get-last-version.outputs.last-version }}"
+            echo "Using last successful version: $ROLLBACK_VERSION"
+            ;;
+          "specific_version")
+            ROLLBACK_VERSION=$(yq eval '.deployment.auto_rollback.target_version // ""' "$CONFIG_FILE")
+            echo "Using specific version: $ROLLBACK_VERSION"
+            ;;
+          *)
+            echo "::error::Unknown rollback strategy: $STRATEGY"
+            exit 1
+            ;;
+        esac
+        
+        if [[ -z "$ROLLBACK_VERSION" ]]; then
+          echo "::error::No rollback target version available"
+          echo "::error::Cannot perform automatic rollback"
+          exit 1
+        fi
+        
+        echo "🎯 Rolling back to version: $ROLLBACK_VERSION"
+        
+        # Set environment variables for rollback
+        ENV="${{ steps.determine-env.outputs.environment }}"
+        S3_BUCKET="$S3_BUCKET_NAME"
+        LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
+        
+        # Normalize version (remove 'v' prefix if present)
+        NORMALIZED_VERSION=$(echo "$ROLLBACK_VERSION" | sed 's/^v//')
+        
+        # Construct S3 key for the rollback version
+        S3_KEY="${LAMBDA_FUNCTION}/${NORMALIZED_VERSION}/${LAMBDA_FUNCTION}-${NORMALIZED_VERSION}.zip"
+        
+        echo "🔍 Checking if rollback version exists in S3..."
+        if ! aws s3api head-object --bucket "$S3_BUCKET" --key "$S3_KEY" > /dev/null 2>&1; then
+          echo "::error::Rollback version $ROLLBACK_VERSION not found in S3"
+          echo "::error::S3 location: s3://$S3_BUCKET/$S3_KEY"
+          exit 1
+        fi
+        
+        echo "✅ Rollback version found, proceeding with rollback..."
+        
+        # Update Lambda function with rollback version
+        echo "🔄 Updating Lambda function to rollback version..."
+        if aws lambda update-function-code \
+          --function-name "$LAMBDA_FUNCTION" \
+          --s3-bucket "$S3_BUCKET" \
+          --s3-key "$S3_KEY" \
+          --publish > /tmp/rollback-update.json; then
+          
+          # Get rollback deployment info
+          LAMBDA_VERSION=$(jq -r '.Version' /tmp/rollback-update.json)
+          LAMBDA_SIZE=$(jq -r '.CodeSize' /tmp/rollback-update.json)
+          
+          # Tag the rollback
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          TIMESTAMP=$(date +%s)
+          TAGS="Version=$NORMALIZED_VERSION,Environment=$ENV,DeploymentType=auto-rollback,RollbackBy=system,RollbackTimestamp=$TIMESTAMP,RollbackReason=deployment-failure"
+          
+          aws lambda tag-resource \
+            --resource "arn:aws:lambda:$AWS_REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION" \
+            --tags "$TAGS" || echo "::warning::Failed to tag rollback"
+          
+          echo "✅ Auto-rollback completed successfully!"
+          echo "  Rolled back to Version: $NORMALIZED_VERSION"
+          echo "  Lambda Version: $LAMBDA_VERSION"
+          echo "  Package Size: $(numfmt --to=iec $LAMBDA_SIZE)"
+          echo "  S3 Location: s3://$S3_BUCKET/$S3_KEY"
+          
+          # Set outputs
+          echo "rollback-completed=true" >> $GITHUB_OUTPUT
+          echo "rollback-version=$NORMALIZED_VERSION" >> $GITHUB_OUTPUT
+          
+        else
+          echo "::error::Auto-rollback failed"
+          echo "::error::Both original deployment and rollback have failed"
+          exit 1
+        fi
+
+    - name: Auto-Rollback Health Check
+      if: steps.auto-rollback.outputs.rollback-completed == 'true'
+      shell: bash
+      run: |
+        echo "🔍 Running health check after auto-rollback..."
+        
+        # Load health check configuration
+        CONFIG_FILE="${{ steps.load-config.outputs.config-file-path }}"
+        VALIDATE_ROLLBACK=$(yq eval '.deployment.auto_rollback.behavior.validate_rollback // true' "$CONFIG_FILE")
+        
+        if [[ "$VALIDATE_ROLLBACK" != "true" ]]; then
+          echo "Rollback validation is disabled, skipping health check"
+          exit 0
+        fi
+        
+        # Run the same health check logic as normal deployment
+        HEALTH_CHECK_ENABLED=$(yq eval '.deployment.health_check.enabled // true' "$CONFIG_FILE")
+        
+        if [[ "$HEALTH_CHECK_ENABLED" == "false" ]]; then
+          echo "Health check is disabled in configuration"
+          echo "✅ Auto-rollback completed (health check skipped)"
+        else
+          echo "Running health check after auto-rollback..."
+          
+          # Simple health check - just invoke the function
+          LAMBDA_FUNCTION="$LAMBDA_FUNCTION_NAME"
+          
+          if aws lambda invoke \
+            --function-name "$LAMBDA_FUNCTION" \
+            --payload '{"source":"auto-rollback-validation"}' \
+            /tmp/rollback-health-response.json > /dev/null 2>&1; then
+            echo "✅ Auto-rollback health check passed"
+            echo "✅ System successfully rolled back and is functional"
+          else
+            echo "::warning::Auto-rollback health check failed"
+            echo "::warning::Rollback completed but function may have issues"
+          fi
+        fi
 

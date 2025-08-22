@@ -1,0 +1,37 @@
+# Simple Lambda deployment configuration
+# This is the minimal configuration needed for deployment
+
+project:
+  name: "my-lambda-function"
+  runtime: "python"
+  versions:
+    python: "3.9"
+
+build:
+  commands:
+    install: "auto"  # pip install -r requirements.txt
+    test: "auto"     # python -m pytest (if tests exist)
+    build: "auto"    # automatic packaging
+  tests_required: false
+
+environments:
+  dev:
+    trigger_branches: ["main", "feature/**"]
+    aws:
+      auth_type: "access_key"
+  
+  prod:
+    aws:
+      auth_type: "oidc"
+    deployment:
+      versioning: true
+      notifications: true
+
+# Optional: Health check (disabled by default)
+deployment:
+  health_check:
+    enabled: false
+  
+  # Optional: Auto-rollback (disabled by default)
+  auto_rollback:
+    enabled: false

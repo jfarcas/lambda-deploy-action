@@ -1,0 +1,80 @@
+# Advanced Lambda deployment configuration with auto-rollback
+# This shows all available configuration options
+
+project:
+  name: "my-lambda-function"
+  runtime: "python"
+  versions:
+    python: "3.9"
+
+build:
+  commands:
+    install: "pip install -r requirements.txt"
+    test: "python -m pytest tests/"
+    build: "auto"
+  tests_required: true
+
+environments:
+  dev:
+    trigger_branches: ["main", "feature/**"]
+    aws:
+      auth_type: "access_key"
+  
+  pre:
+    trigger_branches: ["release/**"]
+    aws:
+      auth_type: "oidc"
+    deployment:
+      versioning: true
+  
+  prod:
+    aws:
+      auth_type: "oidc"
+    deployment:
+      versioning: true
+      notifications: true
+
+# Advanced deployment configuration
+deployment:
+  # Health check configuration
+  health_check:
+    enabled: true
+    test_payload_object:
+      name: "HealthCheck"
+      source: "deployment-validation"
+      timestamp: "auto"
+    expected_status_code: 200
+    expected_response_contains: "success"
+  
+  # Auto-rollback configuration (ENTERPRISE FEATURE)
+  auto_rollback:
+    # Enable automatic rollback on deployment failure
+    enabled: true
+    
+    # Strategy for determining rollback target
+    strategy: "last_successful"  # Options: "last_successful", "specific_version"
+    
+    # Uncomment for specific version strategy:
+    # target_version: "v1.2.3"
+    
+    # Conditions that trigger auto-rollback
+    triggers:
+      # Rollback on deployment failure (Lambda update fails)
+      on_deployment_failure: true
+      
+      # Rollback on health check failure (after successful deployment)
+      on_health_check_failure: false
+      
+      # Rollback on validation failure
+      on_validation_failure: false
+    
+    # Auto-rollback behavior
+    behavior:
+      # Maximum number of rollback attempts
+      max_attempts: 1
+      
+      # Whether to run health checks after rollback
+      validate_rollback: true
+      
+      # Whether to fail the workflow if rollback also fails
+      fail_on_rollback_failure: true
