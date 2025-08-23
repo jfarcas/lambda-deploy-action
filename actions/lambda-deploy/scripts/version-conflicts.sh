@@ -180,9 +180,14 @@ check_version_exists_in_s3_object() {
     
     echo "Checking S3 object: s3://$s3_bucket/$s3_key"
     
-    if aws_retry 3 aws s3api head-object --bucket "$s3_bucket" --key "$s3_key" > /dev/null 2>&1; then
+    # Use direct AWS CLI call instead of aws_retry for object existence check
+    # 404 errors are not retryable - they definitively mean the object doesn't exist
+    if aws s3api head-object --bucket "$s3_bucket" --key "$s3_key" > /dev/null 2>&1; then
+        echo "✅ Object exists"
         return 0  # Object exists
     else
+        local exit_code=$?
+        echo "❌ Object does not exist (exit code: $exit_code)"
         return 1  # Object does not exist
     fi
 }
