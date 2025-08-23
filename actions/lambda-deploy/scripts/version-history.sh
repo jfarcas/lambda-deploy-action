@@ -111,22 +111,23 @@ get_version_history() {
     local s3_bucket="$S3_BUCKET_NAME"
     local lambda_function="$LAMBDA_FUNCTION_NAME"
     
-    # Construct environment-specific S3 path
-    local s3_path="s3://$s3_bucket/$lambda_function/environments/$environment/versions/"
+    # Construct environment-specific S3 path using actual structure
+    local s3_path="s3://$s3_bucket/$lambda_function/$environment/"
     
     echo "Checking S3 path: $s3_path"
     
     # List versions in S3, sorted by modification time (newest first)
     local versions_output="/tmp/version-history.txt"
     
-    if aws_retry 3 aws s3 ls "$s3_path" --recursive > "$versions_output" 2>/dev/null; then
+    if aws_retry 3 aws s3 ls "$s3_path" > "$versions_output" 2>/dev/null; then
         echo "Available versions in $environment environment:"
         
         # Parse versions from S3 listing and sort by date
         local versions_file="/tmp/versions.txt"
         grep "\.zip$" "$versions_output" | \
-            grep -oE '/versions/[^/]+/' | \
-            sed 's|/versions/||g; s|/||g' | \
+            grep -v "latest.zip" | \
+            awk '{print $4}' | \
+            sed 's/\.zip$//' | \
             sort -V -r | \
             head -"$limit" > "$versions_file"
         
@@ -176,8 +177,8 @@ validate_version_exists() {
     local normalized_version
     normalized_version=$(echo "$version" | sed 's/^v//')
     
-    # Construct expected S3 key
-    local s3_key="$lambda_function/environments/$environment/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+    # Construct expected S3 key using actual structure
+    local s3_key="$lambda_function/$environment/$normalized_version.zip"
     
     echo "Checking S3 object: s3://$s3_bucket/$s3_key"
     

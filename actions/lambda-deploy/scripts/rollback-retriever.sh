@@ -89,16 +89,16 @@ get_rollback_s3_key() {
     local normalized_version="$2"
     local lambda_function="$3"
     
-    # Generate environment-specific S3 path for rollback
+    # Generate environment-specific S3 path for rollback using actual structure
     case "$environment" in
         "pre"|"staging"|"test")
-            echo "$lambda_function/environments/pre/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/pre/$normalized_version.zip"
             ;;
         "prod"|"production")
-            echo "$lambda_function/environments/prod/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/prod/$normalized_version.zip"
             ;;
         *)
-            echo "$lambda_function/environments/$environment/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            echo "$lambda_function/$environment/$normalized_version.zip"
             ;;
     esac
 }

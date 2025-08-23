@@ -209,17 +209,17 @@ execute_auto_rollback() {
     local normalized_version
     normalized_version=$(echo "$rollback_version" | sed 's/^v//')
     
-    # Determine S3 key for rollback artifact
+    # Determine S3 key for rollback artifact using actual structure
     local s3_key
     case "$environment" in
         "pre"|"staging"|"test")
-            s3_key="$lambda_function/environments/pre/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            s3_key="$lambda_function/pre/$normalized_version.zip"
             ;;
         "prod"|"production")
-            s3_key="$lambda_function/environments/prod/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            s3_key="$lambda_function/prod/$normalized_version.zip"
             ;;
         *)
-            s3_key="$lambda_function/environments/$environment/versions/$normalized_version/$lambda_function-$normalized_version.zip"
+            s3_key="$lambda_function/$environment/$normalized_version.zip"
             ;;
     esac
     
@@ -231,10 +231,10 @@ execute_auto_rollback() {
         echo "::error::Rollback version $rollback_version not found in $environment environment"
         echo "::error::S3 location: s3://$s3_bucket/$s3_key"
         
-        # List available versions for debugging
+        # List available versions for debugging using actual structure
         echo "Available versions in $environment:"
-        aws s3 ls "s3://$s3_bucket/$lambda_function/environments/$environment/versions/" --recursive | \
-            grep "\.zip$" | head -10 || echo "No versions found"
+        aws s3 ls "s3://$s3_bucket/$lambda_function/$environment/" | \
+            grep "\.zip$" | grep -v "latest.zip" | head -10 || echo "No versions found"
         
         return 1
     fi

@@ -5,7 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [ lambda-deploy-v1.1.0] - 2025-08-22
+## [lambda-deploy-v1.1.1] - 2025-08-23
+
+### 🔧 Bug Fixes
+- **Fixed version detection failure in production environment**: Corrected S3 path structure mismatch between version conflict checking and actual deployment paths
+- **Fixed artifact path configuration**: Moved artifact configuration from `quality_checks.artifact.path` to `build.artifact.path` to match action expectations
+- **Fixed Teams notification environment**: Reverted Teams notification trigger from `prod` to `dev` environment for backward compatibility with v1.0.0
+
+### 🏗️ Technical Improvements
+- **S3 Structure Consistency**: Aligned all scripts to use the simplified S3 structure (`lambda_function/environment/version.zip`) instead of the complex nested structure
+- **Version Conflict Detection**: Enhanced version conflict checking to properly handle new production environments with no previous deployments
+- **Rollback Path Consistency**: Fixed rollback artifact retrieval to use correct S3 paths across all scripts
+
+### 📝 Files Updated
+- `scripts/version-conflicts.sh`: Fixed S3 path structure and added object-specific checking
+- `scripts/version-history.sh`: Updated to use correct S3 structure for version listing
+- `scripts/rollback-retriever.sh`: Aligned S3 key generation with deployer structure
+- `scripts/auto-rollback.sh`: Fixed rollback artifact path resolution
+- `action.yml`: Reverted Teams notification environment trigger
+- Consumer config example: Fixed artifact path configuration location
+
+### 🎯 Impact
+- **Production deployments**: Now work correctly even when no previous deployments exist
+- **Version conflicts**: Properly detected using actual S3 object existence rather than directory structure
+- **Rollbacks**: Function correctly with consistent S3 path resolution
+- **Teams notifications**: Restored to original v1.0.0 behavior for dev environment
+
+## [lambda-deploy-v1.1.0] - 2025-08-22
 
 ### 🔧 Critical Bug Fixes
 

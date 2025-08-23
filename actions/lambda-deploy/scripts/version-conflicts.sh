@@ -63,7 +63,9 @@ handle_staging_environment() {
     echo "🧪 Staging environment: Flexible version policy"
     
     # Check if version exists in staging environment specifically
-    local staging_s3_path="s3://$s3_bucket/$lambda_function/environments/pre/versions/$version/"
+    # Use the actual S3 structure: lambda_function/pre/version.zip
+    local staging_s3_key="$lambda_function/pre/$version.zip"
+    local staging_s3_path="s3://$s3_bucket/$staging_s3_key"
     
     if [[ "$force_deploy" == "true" ]]; then
         echo "🚨 Force deployment enabled - bypassing version checks"
@@ -72,7 +74,8 @@ handle_staging_environment() {
         return 0
     fi
     
-    if check_version_exists_in_s3 "$staging_s3_path"; then
+    echo "Checking for existing version at: $staging_s3_path"
+    if check_version_exists_in_s3_object "$s3_bucket" "$staging_s3_key"; then
         echo "⚠️  Version $version already exists in staging environment"
         echo "::warning::Version $version exists in staging environment"
         echo "::notice::Allowing overwrite for staging testing flexibility"
@@ -95,7 +98,9 @@ handle_production_environment() {
     echo "🏭 Production environment: Strict version conflict checking"
     
     # Check if version exists in production environment specifically
-    local prod_s3_path="s3://$s3_bucket/$lambda_function/environments/prod/versions/$version/"
+    # Use the actual S3 structure: lambda_function/prod/version.zip
+    local prod_s3_key="$lambda_function/prod/$version.zip"
+    local prod_s3_path="s3://$s3_bucket/$prod_s3_key"
     
     if [[ "$force_deploy" == "true" ]]; then
         echo "🚨 Force deployment enabled in PRODUCTION"
@@ -106,7 +111,8 @@ handle_production_environment() {
         return 0
     fi
     
-    if check_version_exists_in_s3 "$prod_s3_path"; then
+    echo "Checking for existing version at: $prod_s3_path"
+    if check_version_exists_in_s3_object "$s3_bucket" "$prod_s3_key"; then
         echo "❌ Version conflict in PRODUCTION environment"
         echo "::error::Version $version already exists in production"
         echo "::error::Production requires unique versions for audit and rollback"
@@ -134,7 +140,9 @@ handle_unknown_environment() {
     echo "🤔 Unknown environment: $environment (applying production policies)"
     echo "::warning::Unknown environment, using strict version checking"
     
-    local unknown_s3_path="s3://$s3_bucket/$lambda_function/environments/$environment/versions/$version/"
+    # Use the actual S3 structure: lambda_function/environment/version.zip
+    local unknown_s3_key="$lambda_function/$environment/$version.zip"
+    local unknown_s3_path="s3://$s3_bucket/$unknown_s3_key"
     
     if [[ "$force_deploy" == "true" ]]; then
         echo "can-deploy=true" >> "$GITHUB_OUTPUT"
@@ -142,7 +150,8 @@ handle_unknown_environment() {
         return 0
     fi
     
-    if check_version_exists_in_s3 "$unknown_s3_path"; then
+    echo "Checking for existing version at: $unknown_s3_path"
+    if check_version_exists_in_s3_object "$s3_bucket" "$unknown_s3_key"; then
         echo "::error::Version conflict in $environment environment"
         echo "can-deploy=false" >> "$GITHUB_OUTPUT"
         echo "deployment-strategy=blocked" >> "$GITHUB_OUTPUT"
@@ -162,6 +171,19 @@ check_version_exists_in_s3() {
         return 0  # Version exists
     else
         return 1  # Version does not exist
+    fi
+}
+
+check_version_exists_in_s3_object() {
+    local s3_bucket="$1"
+    local s3_key="$2"
+    
+    echo "Checking S3 object: s3://$s3_bucket/$s3_key"
+    
+    if aws_retry 3 aws s3api head-object --bucket "$s3_bucket" --key "$s3_key" > /dev/null 2>&1; then
+        return 0  # Object exists
+    else
+        return 1  # Object does not exist
     fi
 }
 
@@ -229,19 +251,22 @@ get_environment_version_history() {
     local s3_bucket="${S3_BUCKET_NAME:-}"
     local lambda_function="${LAMBDA_FUNCTION_NAME:-}"
     
-    local env_s3_path="s3://$s3_bucket/$lambda_function/environments/$environment/versions/"
+    # Use the actual S3 structure: lambda_function/environment/
+    local env_s3_path="s3://$s3_bucket/$lambda_function/$environment/"
     
     echo "Listing versions from: $env_s3_path"
     
     local versions_file="/tmp/versions-$environment.txt"
     
-    if aws_retry 3 aws s3 ls "$env_s3_path" --recursive > "$versions_file" 2>/dev/null; then
+    if aws_retry 3 aws s3 ls "$env_s3_path" > "$versions_file" 2>/dev/null; then
         if [[ -s "$versions_file" ]]; then
             echo "Available versions in $environment:"
             
-            # Extract version numbers and sort them
+            # Extract version numbers from .zip files and sort them
             grep "\.zip$" "$versions_file" | \
-                sed -E 's|.*versions/([^/]+)/.*|\1|' | \
+                grep -v "latest.zip" | \
+                awk '{print $4}' | \
+                sed 's/\.zip$//' | \
                 sort -V -r | \
                 head -"$limit" | \
                 nl -w2 -s'. '

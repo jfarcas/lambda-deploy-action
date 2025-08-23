@@ -31,6 +31,8 @@ build:
     lint: "npm run lint"        # Run linting (blocks deployment on errors)
     test: "npm test"            # Run tests (blocks deployment on failures)
     build: "npm run build"      # Build the project
+  artifact:
+    path: "lambda-function.zip" # Path where build command creates the artifact
     
 # Quality checks configuration - enable/disable quality checks
 quality_checks:
