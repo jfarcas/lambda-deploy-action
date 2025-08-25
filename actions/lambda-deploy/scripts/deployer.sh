@@ -66,6 +66,10 @@ perform_normal_deployment() {
         return 1
     fi
     
+    # Export Lambda version for notifications and other scripts
+    echo "LAMBDA_VERSION=$lambda_version" >> "$GITHUB_ENV"
+    export LAMBDA_VERSION="$lambda_version"
+    
     # Tag the deployment
     tag_lambda_deployment "$lambda_function" "$version" "$environment" "deploy" "$aws_region"
     
@@ -105,6 +109,10 @@ perform_rollback_deployment() {
         echo "::error::Lambda function rollback failed, aborting rollback"
         return 1
     fi
+    
+    # Export Lambda version for notifications and other scripts
+    echo "LAMBDA_VERSION=$lambda_version" >> "$GITHUB_ENV"
+    export LAMBDA_VERSION="$lambda_version"
     
     # Tag the rollback
     tag_lambda_deployment "$lambda_function" "$rollback_version" "$environment" "rollback" "$aws_region"

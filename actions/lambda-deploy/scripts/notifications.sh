@@ -42,6 +42,22 @@ gather_deployment_info() {
     local package_size="${PACKAGE_SIZE:-unknown}"
     local s3_location="${S3_LOCATION:-unknown}"
     
+    # Additional fallbacks for missing values
+    if [[ "$environment" == "unknown" ]]; then
+        # Try to detect from branch if not set
+        local branch="${GITHUB_REF_NAME:-main}"
+        if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+            environment="dev"
+        elif [[ "$branch" =~ ^feature/ ]]; then
+            environment="dev"
+        fi
+    fi
+    
+    # If lambda version is still unknown, try to get it from AWS
+    if [[ "$lambda_version" == "unknown" && -n "${LAMBDA_FUNCTION_NAME:-}" ]]; then
+        lambda_version=$(aws lambda get-function --function-name "${LAMBDA_FUNCTION_NAME}" --query 'Configuration.Version' --output text 2>/dev/null || echo "unknown")
+    fi
+    
     # Get additional context
     local deployer="${GITHUB_ACTOR:-system}"
     local repository="${GITHUB_REPOSITORY:-unknown}"

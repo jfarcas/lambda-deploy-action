@@ -29,6 +29,7 @@ determine_environment() {
     
     # Export for use by other scripts
     export DEPLOYMENT_ENVIRONMENT="$env_name"
+    echo "DEPLOYMENT_ENVIRONMENT=$env_name" >> "$GITHUB_ENV"
 }
 
 # Run if script is executed directly

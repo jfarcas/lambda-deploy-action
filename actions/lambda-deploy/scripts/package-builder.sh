@@ -402,6 +402,10 @@ validate_lambda_package() {
     echo "  Size: ${package_size} bytes (${package_size_mb}MB)"
     echo "  Location: $artifact_path"
     
+    # Export package size for notifications and other scripts
+    echo "PACKAGE_SIZE=$package_size" >> "$GITHUB_ENV"
+    export PACKAGE_SIZE="$package_size"
+    
     # Check AWS Lambda limits
     if [[ $package_size_mb -gt 250 ]]; then
         echo "::error::Lambda package exceeds AWS limit (250MB unzipped)"
