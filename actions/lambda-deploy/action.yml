@@ -168,12 +168,22 @@ runs:
 
     - name: Check Version Conflicts
       id: version-check
+      if: steps.deployment-mode.outputs.deployment-mode == 'deploy'
       shell: bash
       run: |
         source ${{ github.action_path }}/scripts/version-conflicts.sh
         check_version_conflicts "${{ steps.determine-env.outputs.environment }}" \
                                 "${{ steps.get-version.outputs.version }}" \
                                 "${{ inputs.force-deploy }}"
+
+    - name: Skip Version Conflicts for Rollback
+      id: rollback-check
+      if: steps.deployment-mode.outputs.deployment-mode == 'rollback'
+      shell: bash
+      run: |
+        echo "🔄 Rollback mode detected - skipping version conflict checks"
+        echo "can-deploy=true" >> "$GITHUB_OUTPUT"
+        echo "deployment-strategy=rollback" >> "$GITHUB_OUTPUT"
 
     # Phase 6: Deployment Operations
     - name: Retrieve Rollback Artifact
@@ -187,7 +197,7 @@ runs:
 
     - name: Deploy to S3 and Lambda
       id: deploy
-      if: steps.version-check.outputs.can-deploy == 'true' || steps.deployment-mode.outputs.deployment-mode == 'rollback'
+      if: steps.version-check.outputs.can-deploy == 'true' || steps.rollback-check.outputs.can-deploy == 'true'
       shell: bash
       env:
         ROLLBACK_VERSION: ${{ steps.retrieve-rollback.outputs.version }}

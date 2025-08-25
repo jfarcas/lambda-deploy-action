@@ -111,6 +111,25 @@ handle_production_environment() {
         return 0
     fi
     
+    # NEW: Check if version exists in pre-production first (required before prod deployment)
+    echo "🔍 Checking pre-production deployment requirement..."
+    local pre_s3_key="$lambda_function/pre/$version.zip"
+    if ! check_version_exists_in_s3_object "$s3_bucket" "$pre_s3_key"; then
+        echo "❌ Production deployment blocked: Version $version not found in pre-production environment"
+        echo "::error::Version $version must be deployed to 'pre' environment before production"
+        echo "::error::This ensures proper testing and validation before production deployment"
+        echo "::error::Resolution steps:"
+        echo "::error::  1. Deploy version $version to 'pre' environment first"
+        echo "::error::  2. Run integration tests and validation"
+        echo "::error::  3. Then deploy to production"
+        echo "::error::  Alternative: Use force-deploy: true for emergency hotfixes only"
+        echo "can-deploy=false" >> "$GITHUB_OUTPUT"
+        echo "deployment-strategy=blocked-missing-pre" >> "$GITHUB_OUTPUT"
+        return 1
+    else
+        echo "✅ Pre-production deployment verified for version $version"
+    fi
+    
     echo "Checking for existing version at: $prod_s3_path"
     if check_version_exists_in_s3_object "$s3_bucket" "$prod_s3_key"; then
         echo "❌ Version conflict in PRODUCTION environment"

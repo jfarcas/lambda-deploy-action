@@ -167,6 +167,105 @@ Repository tags include action prefix:
 - uses: YourOrg/github-actions-collection/actions/lambda-deploy@main
 ```
 
+## 🔄 Rollback Options
+
+The Lambda Deploy Action provides comprehensive rollback capabilities for safe deployment recovery:
+
+### **Manual Rollback**
+
+#### **Option 1: GitHub Actions Workflow Dispatch**
+1. Go to your repository's **Actions** tab
+2. Select your deployment workflow
+3. Click **Run workflow**
+4. Fill in the parameters:
+   - **Environment**: `prod`, `pre`, or `dev`
+   - **Rollback Version**: `1.0.1` (version to rollback to)
+   - **Force Deploy**: Check only for emergencies
+
+#### **Option 2: Direct Action Configuration**
+```yaml
+- name: Rollback Lambda
+  uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.1.0
+  with:
+    config-file: "lambda-deploy-config.yml"
+    environment: "prod"
+    rollback-to-version: "1.0.1"  # Specify version to rollback to
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+    LAMBDA_FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+    AWS_REGION: ${{ vars.AWS_REGION }}
+```
+
+#### **Option 3: Emergency Force Deploy**
+If rollback encounters issues, use force deploy to bypass safety checks:
+```yaml
+- name: Emergency Rollback
+  uses: YourOrg/github-actions-collection/actions/lambda-deploy@v1.1.0
+  with:
+    rollback-to-version: "1.0.1"
+    force-deploy: "true"  # Bypasses version conflicts
+    environment: "prod"
+```
+
+### **Automatic Rollback**
+
+Enable automatic rollback on deployment failure in `lambda-deploy-config.yml`:
+
+```yaml
+rollback:
+  enabled: true
+  auto_rollback: true      # Automatically rollback on deployment failure
+  health_check_retries: 3
+  health_check_delay: 10   # Seconds between health checks
+
+deployment:
+  auto_rollback:
+    enabled: true
+    strategy: "last_successful"  # Options: last_successful, specific_version, previous_stable
+    triggers:
+      on_deployment_failure: true
+    behavior:
+      max_attempts: 1
+```
+
+### **Rollback Requirements & Limitations**
+
+#### **✅ Supported Environments**
+- `pre`, `staging`, `test` - Full rollback support
+- `prod`, `production` - Full rollback support with pre-deployment validation
+
+#### **❌ Limitations**
+- **Dev Environment**: Rollback NOT supported (uses timestamp-based paths)
+- **Version Must Exist**: Target rollback version must exist in S3 for the environment
+- **Production Safety**: Versions must be deployed to `pre` environment before production
+
+#### **🔍 Finding Available Versions**
+The action automatically lists available versions when rollback fails. You can also check S3 directly:
+```bash
+aws s3 ls s3://your-bucket/your-function/prod/ --recursive | grep "\.zip$"
+```
+
+### **Rollback Best Practices**
+
+1. **Test in Pre-Production First**: Always deploy and test in `pre` before production
+2. **Monitor After Rollback**: Verify application health post-rollback
+3. **Database Compatibility**: Ensure rollback version is compatible with current database state
+4. **Environment Variables**: They remain unchanged during rollback
+5. **Use Force Deploy Sparingly**: Only for emergency situations
+
+### **Troubleshooting Rollback Issues**
+
+**Issue**: "Version conflict detected even in rollback mode"
+- **Solution**: Update to latest action version with rollback conflict fix
+
+**Issue**: "Version not found for rollback"  
+- **Solution**: Check available versions and ensure target exists in the environment
+
+**Issue**: "Production deployment blocked: missing pre-deployment"
+- **Solution**: Deploy to `pre` environment first, or use `force-deploy: true` for emergencies
+
 ## 🤝 Contributing
 
 We welcome contributions to any of our actions! Please see:
