@@ -52,14 +52,14 @@ Secure SSH-based deployment for traditional servers and containerized applicatio
 
 ## 📋 Action Comparison
 
-| Feature | Lambda Deploy | SSH Deploy |
-|---------|---------------|------------|
-| **Target** | AWS Lambda | SSH Servers |
-| **Environments** | dev/pre/prod | Configurable |
-| **Rollback** | ✅ | ✅ (Planned) |
-| **Health Checks** | ✅ | ✅ (Planned) |
-| **Version Management** | ✅ | ✅ (Planned) |
-| **Status** | ✅ Production Ready | 🚧 In Development |
+| Feature                | Lambda Deploy      | SSH Deploy        |
+|------------------------|--------------------|-------------------|
+| **Target**             | AWS Lambda         | SSH Servers       |
+| **Environments**       | dev/pre/prod       | Configurable      |
+| **Rollback**           | ✅                  | ✅ (Planned)       |
+| **Health Checks**      | ✅                  | ✅ (Planned)       |
+| **Version Management** | ✅                  | ✅ (Planned)       |
+| **Status**             | ✅ Production Ready | 🚧 In Development |
 
 ## 🛠️ Repository Structure
 
